@@ -1,0 +1,34 @@
+[package]
+name = "thrml-models"
+description = "Model implementations for the THRML probabilistic computing library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/thrml-models"
+readme = "README.md"
+keywords = ["ising", "boltzmann-machine", "ebm", "energy-based-models", "gpu"]
+categories = ["science", "simulation", "mathematics"]
+rust-version.workspace = true
+
+[dependencies]
+thrml-core = { path = "../thrml-core" }
+thrml-samplers = { path = "../thrml-samplers" }
+thrml-observers = { path = "../thrml-observers" }
+burn = { workspace = true }
+burn-tensor = { workspace = true }
+burn-wgpu = { workspace = true, optional = true }
+indexmap = { workspace = true }
+
+[dev-dependencies]
+insta = "1.38"
+itertools = { workspace = true }
+ndarray = "0.16"
+ndarray-npy = "0.9"
+rand = { workspace = true }
+
+[features]
+default = ["gpu"]
+gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-observers/gpu"]

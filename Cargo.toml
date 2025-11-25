@@ -1,0 +1,34 @@
+[workspace]
+members = [
+    "crates/thrml-core",
+    "crates/thrml-samplers",
+    "crates/thrml-models",
+    "crates/thrml-observers",
+    "crates/thrml-examples",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["sashimisaketoro"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sashimisaketoro/thrml-rs"
+homepage = "https://github.com/sashimisaketoro/thrml-rs"
+documentation = "https://docs.rs/thrml-rs"
+readme = "README.md"
+keywords = ["machine-learning", "probabilistic-graphical-models", "sampling", "gibbs", "gpu"]
+categories = ["science", "simulation", "mathematics"]
+rust-version = "1.89"
+
+[workspace.dependencies]
+burn = { version = "0.19", default-features = false }
+burn-tensor = { version = "0.19", default-features = false }
+burn-wgpu = { version = "0.19", default-features = false }
+indexmap = { version = "2.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+rand_chacha = "0.3"
+itertools = "0.12"
+once_cell = "1.19"

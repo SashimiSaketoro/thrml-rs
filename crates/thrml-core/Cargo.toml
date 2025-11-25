@@ -1,0 +1,37 @@
+[package]
+name = "thrml-core"
+description = "Core types and GPU backend for the THRML probabilistic computing library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/thrml-core"
+readme = "README.md"
+keywords = ["machine-learning", "probabilistic-graphical-models", "gpu", "tensor"]
+categories = ["science", "simulation"]
+rust-version.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+burn-tensor = { workspace = true }
+burn-wgpu = { workspace = true, optional = true }
+burn-cubecl = { version = "0.19", default-features = false, optional = true }
+petgraph = "0.7.1"
+indexmap = { workspace = true }
+smallvec = "1.13"
+arrayvec = "0.7"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+insta = "1.38"
+
+[features]
+default = ["gpu"]
+gpu = ["burn/wgpu", "burn-wgpu", "burn-cubecl"]

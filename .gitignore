@@ -1,0 +1,59 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# Generated output from examples
+/output/
+*.png
+!docs/**/*.png
+!crates/thrml-examples/**/*.png
+
+# WGPU runtime config (generated at runtime)
+wgpu_runtime.toml
+
+# Training logs and temporary files
+training_log.txt
+*.log
+*.tmp
+
+# Test data binaries are tracked
+# *.npy
+
+# Debug files
+*.pdb
+*.dSYM/
+
+# Coverage
+*.profraw
+*.profdata
+/coverage/
+lcov.info
+tarpaulin-report.html
+
+# Benchmarks output
+/criterion/
+
+# Documentation build
+/target/doc/
+
+# Cargo config override (for local development)
+.cargo/config.local.toml
+
+# Environment files
+.env
+.env.local

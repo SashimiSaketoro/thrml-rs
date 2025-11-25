@@ -1,0 +1,33 @@
+[package]
+name = "thrml-samplers"
+description = "Sampling algorithms for the THRML probabilistic computing library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/thrml-samplers"
+readme = "README.md"
+keywords = ["sampling", "gibbs", "mcmc", "probabilistic", "gpu"]
+categories = ["science", "simulation", "algorithms"]
+rust-version.workspace = true
+
+[dependencies]
+thrml-core = { path = "../thrml-core" }
+thrml-observers = { path = "../thrml-observers" }
+burn = { workspace = true }
+burn-tensor = { workspace = true }
+burn-wgpu = { workspace = true, optional = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+itertools = { workspace = true }
+
+[dev-dependencies]
+insta = "1.38"
+
+[features]
+default = ["gpu"]
+gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-observers/gpu"]

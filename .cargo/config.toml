@@ -1,0 +1,17 @@
+[build]
+# Default to GPU feature for development
+# CI will explicitly use --no-default-features when needed
+
+[target.aarch64-apple-darwin]
+# Metal backend optimizations for Apple Silicon
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "target-cpu=native"]
+
+[alias]
+# Convenient aliases for common commands
+dev = "run --release --features gpu"
+t = "test --workspace --features gpu"
+lint = "clippy --workspace --features gpu -- -D warnings"
+

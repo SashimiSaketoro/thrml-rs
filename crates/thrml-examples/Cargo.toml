@@ -1,0 +1,67 @@
+[package]
+name = "thrml-examples"
+description = "Example programs demonstrating THRML probabilistic computing capabilities"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["examples", "tutorial", "probabilistic", "sampling"]
+categories = ["science"]
+rust-version.workspace = true
+publish = false  # Examples are not published to crates.io
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "ising_chain"
+path = "examples/ising_chain.rs"
+
+[[example]]
+name = "spin_models"
+path = "examples/spin_models.rs"
+
+[[example]]
+name = "categorical_sampling"
+path = "examples/categorical_sampling.rs"
+
+[[example]]
+name = "full_api_walkthrough"
+path = "examples/full_api_walkthrough.rs"
+
+[[example]]
+name = "train_mnist"
+path = "examples/train_mnist.rs"
+
+[dependencies]
+thrml-core = { path = "../thrml-core" }
+thrml-samplers = { path = "../thrml-samplers" }
+thrml-models = { path = "../thrml-models" }
+thrml-observers = { path = "../thrml-observers" }
+burn = { version = "0.19", default-features = false }
+burn-wgpu = { version = "0.19", default-features = false, optional = true }
+
+# Visualization and graph libraries
+plotters = { version = "0.3", features = ["bitmap_backend", "line_series", "svg_backend"] }
+petgraph = "0.8"
+indexmap = "2.6"
+
+# Data loading
+ndarray = "0.16"
+ndarray-npy = "0.9"
+rand = { workspace = true }
+
+[features]
+default = ["gpu"]
+gpu = [
+    "thrml-core/gpu",
+    "thrml-samplers/gpu",
+    "thrml-models/gpu",
+    "thrml-observers/gpu",
+    "burn/wgpu",
+    "burn-wgpu",
+]
+

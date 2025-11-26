@@ -1,0 +1,39 @@
+[package]
+name = "thrml-kernels"
+description = "Fused CubeCL GPU kernels for the THRML probabilistic computing library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/thrml-kernels"
+readme = "README.md"
+keywords = ["gpu", "cubecl", "kernel-fusion", "probabilistic", "sampling"]
+categories = ["science", "simulation", "mathematics"]
+rust-version.workspace = true
+
+[dependencies]
+# Core THRML dependency
+thrml-core = { path = "../thrml-core", default-features = false }
+
+# Burn framework with autodiff support
+burn = { workspace = true, default-features = false, features = ["autodiff"] }
+burn-tensor = { workspace = true, default-features = false }
+
+# CubeCL for custom GPU kernels
+burn-cubecl = { version = "0.19", default-features = false, optional = true }
+cubecl = { version = "0.8", default-features = false, features = ["wgpu"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = []
+# Enable GPU-accelerated fused kernels
+gpu = ["burn/wgpu", "burn-cubecl", "cubecl", "thrml-core/gpu"]
+
+[[bench]]
+name = "kernel_fusion"
+harness = false
+

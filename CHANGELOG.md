@@ -57,6 +57,13 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - `gaussian_bernoulli_ebm`: Mixed-type model sampling
 - `train_mnist`: Full MNIST training with contrastive divergence
 
+#### Fused Kernels (`thrml-kernels`)
+- `gumbel_argmax_fused`: Fused Gumbel-max categorical sampling
+- `sigmoid_bernoulli_fused`: Fused sigmoid-Bernoulli spin sampling
+- `batch_gather_fused`: Fused multi-index weight gathering
+- Feature-gated integration with `fused-kernels` feature flag
+- CubeCL kernel definitions for GPU fusion
+
 ### Technical Highlights
 
 - GPU acceleration via WGPU/Metal backend (Burn 0.19)
@@ -66,6 +73,24 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - Comprehensive test suite with GPU smoke tests
 
 ## [Unreleased]
+
+### Added
+
+- Full CLI configuration for `train_mnist` example with all 14+ hyperparameters
+- `--epochs`, `--learning-rate`, `--batch-size`, `--warmup-neg/pos`, `--samples-neg/pos`, etc.
+- Environment variable support for training params (`THRML_EPOCHS`, `THRML_LR`, `THRML_BATCH_SIZE`)
+- Configurable path system (`--base-dir`, `--data-dir`, `--output-dir`, `--cache-dir`)
+- Config file support (`~/.config/thrml/config.toml`)
+- Extended `batch_gather` kernels for 3-6 indices with compile-time unrolling
+- Dynamic `batch_gather` fallback for 7+ indices
+- Gumbel-Softmax autodiff integration for differentiable categorical sampling
+- Straight-Through Estimator (STE) for sigmoid-Bernoulli backward pass
+- `BatchedEBM` trait for vectorized energy computation
+
+### Changed
+
+- Made `PathConfig::from_path_args` public for custom CLI integration
+- Improved batch progress display consistency in training loop
 
 ### Planned
 

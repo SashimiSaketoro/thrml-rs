@@ -7,6 +7,7 @@ use petgraph::graph::{NodeIndex, UnGraph};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use thrml_core::block::Block;
+use thrml_core::config::PathConfig;
 use thrml_core::node::{Node, NodeType};
 
 /// A graph with THRML nodes as node weights.
@@ -220,8 +221,19 @@ pub fn graph_edges(graph: &ThrmlGraph) -> Vec<(Node, Node)> {
 }
 
 /// Create output directory if it doesn't exist.
+///
+/// Uses the global PathConfig to determine the output directory.
+/// Override with `--output-dir` CLI flag or `THRML_OUTPUT_DIR` env var.
 pub fn ensure_output_dir() -> std::io::Result<std::path::PathBuf> {
-    let output_dir = std::path::PathBuf::from("output");
+    let config = PathConfig::global();
+    let output_dir = config.output_dir().to_path_buf();
+    std::fs::create_dir_all(&output_dir)?;
+    Ok(output_dir)
+}
+
+/// Create output directory using custom PathConfig.
+pub fn ensure_output_dir_with_config(config: &PathConfig) -> std::io::Result<std::path::PathBuf> {
+    let output_dir = config.output_dir().to_path_buf();
     std::fs::create_dir_all(&output_dir)?;
     Ok(output_dir)
 }

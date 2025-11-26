@@ -16,6 +16,7 @@ rust-version.workspace = true
 [dependencies]
 thrml-core = { path = "../thrml-core" }
 thrml-observers = { path = "../thrml-observers" }
+thrml-kernels = { path = "../thrml-kernels", optional = true }
 burn = { workspace = true }
 burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
@@ -31,3 +32,4 @@ insta = "1.38"
 [features]
 default = ["gpu"]
 gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-observers/gpu"]
+fused-kernels = ["thrml-kernels", "thrml-kernels/gpu"]

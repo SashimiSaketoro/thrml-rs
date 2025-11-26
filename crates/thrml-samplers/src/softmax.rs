@@ -9,6 +9,9 @@
 //! argmax_k(θ_k + Gumbel(0,1)) ~ Categorical(softmax(θ))
 //!
 //! This is equivalent to JAX's `jax.random.categorical` function.
+//!
+//! When the `fused-kernels` feature is enabled, uses a GPU-fused kernel that
+//! combines the Gumbel noise generation and argmax into a single kernel launch.
 
 use crate::rng::RngKey;
 use crate::sampler::AbstractConditionalSampler;
@@ -17,9 +20,16 @@ use thrml_core::backend::WgpuBackend;
 use thrml_core::interaction::InteractionData;
 use thrml_core::node::TensorSpec;
 
+#[cfg(feature = "fused-kernels")]
+use thrml_kernels::gumbel_argmax_fused;
+
 /// Sample from a categorical distribution using the Gumbel-max trick.
 ///
 /// This implements the same algorithm as JAX's `jax.random.categorical`.
+///
+/// When the `fused-kernels` feature is enabled, uses a GPU-fused kernel that
+/// combines the Gumbel noise generation and argmax into a single kernel launch,
+/// eliminating intermediate memory allocations.
 ///
 /// # Arguments
 ///
@@ -37,27 +47,35 @@ pub fn categorical_sample(
     let n_samples = dims[0];
     let n_categories = dims[1];
 
-    // Generate Gumbel noise: -log(-log(U)) where U ~ Uniform(0, 1)
-    // We add a small epsilon to avoid log(0)
+    // Generate uniform samples
     let uniform: Tensor<WgpuBackend, 2> = Tensor::random(
         [n_samples, n_categories],
         Distribution::Uniform(1e-10, 1.0 - 1e-10),
         device,
     );
 
-    // Gumbel noise: -log(-log(U))
-    let gumbel = -(-(uniform.log())).log();
+    // Use fused kernel when feature is enabled
+    #[cfg(feature = "fused-kernels")]
+    {
+        // gumbel_argmax_fused returns IntTensor, convert to float for API consistency
+        return gumbel_argmax_fused(logits, uniform).float();
+    }
 
-    // Add Gumbel noise to logits
-    let perturbed = logits + gumbel;
+    // Default implementation: separate operations
+    #[cfg(not(feature = "fused-kernels"))]
+    {
+        // Gumbel noise: -log(-log(U))
+        let gumbel = -(-(uniform.log())).log();
 
-    // Argmax along the category dimension
-    // argmax returns shape [n_samples] when axis=1 on [n_samples, n_categories]
-    let samples = perturbed.argmax(1);
+        // Add Gumbel noise to logits
+        let perturbed = logits + gumbel;
 
-    // Convert Int tensor to Float tensor for consistency
-    // The result should be 1D [n_samples]
-    samples.float().squeeze_dim(1)
+        // Argmax along the category dimension
+        let samples = perturbed.argmax(1);
+
+        // Convert Int tensor to Float tensor for consistency
+        samples.float().squeeze_dim(1)
+    }
 }
 
 /// Abstract base for softmax-based samplers.
@@ -409,6 +427,25 @@ fn spin_product_2d(
         .iter()
         .skip(1)
         .fold(first, |acc, x| acc * x.clone())
+}
+
+/// Differentiable categorical sampling using Gumbel-Softmax.
+///
+/// Use this for gradient-based training. For inference, use `categorical_sample`.
+///
+/// # Arguments
+/// * `logits` - Log probabilities [batch_size, n_categories]
+/// * `temperature` - Annealing temperature (1.0 -> 0.1 during training)
+/// * `hard` - Use STE for hard one-hot samples
+/// * `device` - Compute device
+#[cfg(feature = "fused-kernels")]
+pub fn categorical_sample_differentiable(
+    logits: Tensor<WgpuBackend, 2>,
+    temperature: f32,
+    hard: bool,
+    device: &burn::backend::wgpu::WgpuDevice,
+) -> Tensor<WgpuBackend, 2> {
+    thrml_kernels::gumbel_softmax(logits, temperature, hard, device)
 }
 
 #[cfg(test)]

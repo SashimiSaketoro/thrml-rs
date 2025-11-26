@@ -1,16 +1,23 @@
+//! SpinGibbsConditional - Gibbs updates for spin-valued variables in discrete EBMs.
+//!
+//! This sampler performs Gibbs sampling updates for spin (binary) variables,
+//! computing the conditional distribution given neighboring states.
+//!
+//! The conditional probability is: P(S=1) = sigmoid(2*γ)
+//! where γ = Σ_i s_1^i ... s_K^i * W^i[x_1^i, ..., x_M^i]
+//!
+//! When the `fused-kernels` feature is enabled, uses a GPU-fused kernel that
+//! combines the sigmoid and Bernoulli sampling into a single kernel launch.
+
 use crate::rng::RngKey;
 use crate::sampler::AbstractConditionalSampler;
-/// SpinGibbsConditional - Gibbs updates for spin-valued variables in discrete EBMs.
-///
-/// This sampler performs Gibbs sampling updates for spin (binary) variables,
-/// computing the conditional distribution given neighboring states.
-///
-/// The conditional probability is: P(S=1) = sigmoid(2*γ)
-/// where γ = Σ_i s_1^i ... s_K^i * W^i[x_1^i, ..., x_M^i]
 use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
 use thrml_core::interaction::InteractionData;
 use thrml_core::node::TensorSpec;
+
+#[cfg(feature = "fused-kernels")]
+use thrml_kernels::sigmoid_bernoulli_fused;
 
 /// A conditional update for spin-valued random variables that performs a Gibbs sampling update
 /// given one or more DiscreteEBMInteractions.
@@ -52,16 +59,25 @@ impl AbstractConditionalSampler for SpinGibbsConditional {
             device,
         );
 
-        // Sample: P(S=1) = sigmoid(2*gamma)
-        let probs = burn::tensor::activation::sigmoid(gamma * 2.0);
-
-        // Generate uniform random values and compare
+        // Generate uniform random values
         let n_nodes = output_spec.shape[0];
         let uniform: Tensor<WgpuBackend, 1> =
             Tensor::random([n_nodes], Distribution::Uniform(0.0, 1.0), device);
 
-        // Sample Bernoulli: output 1 if uniform < probs, else 0
-        (uniform.lower_equal(probs).float(), ())
+        // Use fused kernel when feature is enabled
+        #[cfg(feature = "fused-kernels")]
+        {
+            return (sigmoid_bernoulli_fused(gamma, uniform), ());
+        }
+
+        // Default implementation: separate operations
+        #[cfg(not(feature = "fused-kernels"))]
+        {
+            // Sample: P(S=1) = sigmoid(2*gamma)
+            let probs = burn::tensor::activation::sigmoid(gamma * 2.0);
+            // Sample Bernoulli: output 1 if uniform < probs, else 0
+            (uniform.lower_equal(probs).float(), ())
+        }
     }
 }
 

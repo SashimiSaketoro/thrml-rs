@@ -34,6 +34,26 @@ pub trait AbstractEBM {
     ) -> Tensor<WgpuBackend, 1>;
 }
 
+/// Batched energy computation trait (vmap-style).
+///
+/// This trait enables efficient batch processing of energy computations
+/// without explicit loops, similar to JAX's vmap.
+pub trait BatchedEBM {
+    /// Compute energy for a batch of states.
+    ///
+    /// # Arguments
+    /// * `states` - Batched states [batch_size, n_nodes]
+    /// * `device` - Compute device
+    ///
+    /// # Returns
+    /// Energy for each state [batch_size]
+    fn energy_batched(
+        &self,
+        states: &Tensor<WgpuBackend, 2>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1>;
+}
+
 /// Trait for factors that define an energy function.
 ///
 /// This combines the `AbstractFactor` trait with the ability to compute energy.

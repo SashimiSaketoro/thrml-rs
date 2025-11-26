@@ -54,6 +54,9 @@ ndarray = "0.16"
 ndarray-npy = "0.9"
 rand = { workspace = true }
 
+# CLI and configuration
+clap = { workspace = true }
+
 [features]
 default = ["gpu"]
 gpu = [
@@ -63,5 +66,9 @@ gpu = [
     "thrml-observers/gpu",
     "burn/wgpu",
     "burn-wgpu",
+]
+fused-kernels = [
+    "thrml-samplers/fused-kernels",
+    "thrml-models/fused-kernels",
 ]
 

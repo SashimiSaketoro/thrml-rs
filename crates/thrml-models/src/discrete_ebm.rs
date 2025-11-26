@@ -1,3 +1,11 @@
+//! Discrete EBM (Energy-Based Model) factors for spin and categorical variables.
+//!
+//! This module provides discrete factor implementations that define energy functions
+//! for models with binary (spin) and categorical variables.
+//!
+//! When the `fused-kernels` feature is enabled, the batch_gather operations use
+//! GPU-fused kernels that eliminate intermediate memory allocations.
+
 use crate::ebm::EBMFactor;
 use crate::factor::{AbstractFactor, FactorInteractionGroup};
 use burn::tensor::Tensor;
@@ -6,6 +14,12 @@ use thrml_core::block::Block;
 use thrml_core::blockspec::BlockSpec;
 use thrml_core::node::Node;
 use thrml_core::state_tree::from_global_state;
+
+// Note: When fused-kernels feature is enabled, batch_gather can use the GPU-fused
+// kernel for improved performance. The current implementation provides the same
+// functionality using standard Burn tensor operations.
+#[cfg(feature = "fused-kernels")]
+use thrml_kernels::batch_gather_fused;
 
 /// An interaction that shows up when sampling from discrete-variable EBMs.
 #[derive(Clone)]
@@ -56,6 +70,9 @@ pub fn spin_product(
 /// The function computes flat indices using strides and then uses a single
 /// `select` operation on the flattened tensor for efficiency.
 ///
+/// When the `fused-kernels` feature is enabled, this can use a GPU-fused kernel
+/// that eliminates intermediate tensor allocations.
+///
 /// # Arguments
 ///
 /// * `weights` - 3D tensor with shape [batch, dim1, dim2, ...]
@@ -103,11 +120,8 @@ pub fn batch_gather(
         }
     }
 
-    let device = weights.device();
-
     // Compute strides for trailing dimensions
-    // stride[i] = product of all dimensions after i (for indexing into trailing dims)
-    let mut strides = Vec::new();
+    let mut strides: Vec<usize> = Vec::new();
     let mut stride = 1;
     for &dim in trailing_dims.iter().rev() {
         strides.push(stride);
@@ -118,31 +132,50 @@ pub fn batch_gather(
     // Batch stride is the product of all trailing dimensions
     let batch_stride: usize = trailing_dims.iter().product();
 
-    // Compute linear indices: batch_idx * batch_stride + idx0 * stride0 + idx1 * stride1 + ...
-    let batch_indices: Tensor<WgpuBackend, 1, burn::tensor::Int> = Tensor::from_data(
-        (0..batch_size)
-            .map(|i| i as i32)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        &device,
-    );
+    // Use fused kernel when feature is enabled
+    #[cfg(feature = "fused-kernels")]
+    {
+        // Stack indices into a 2D tensor [batch_size, n_indices]
+        let indices_stacked: Vec<Tensor<WgpuBackend, 2, burn::tensor::Int>> = indices
+            .iter()
+            .map(|idx| idx.clone().unsqueeze_dim::<2>(1))
+            .collect();
+        let indices_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = Tensor::cat(indices_stacked, 1);
 
-    let batch_stride_tensor =
-        Tensor::from_data(vec![batch_stride as i32; batch_size].as_slice(), &device);
-    let mut linear_idx = batch_indices * batch_stride_tensor;
-
-    for (idx, &stride_val) in indices.iter().zip(strides.iter()) {
-        let stride_tensor =
-            Tensor::from_data(vec![stride_val as i32; batch_size].as_slice(), &device);
-        linear_idx = linear_idx + idx.clone() * stride_tensor;
+        return batch_gather_fused(weights.clone(), indices_2d, &strides, batch_stride);
     }
 
-    // Flatten weights to 1D for efficient indexing
-    let total_size: usize = dims.iter().product();
-    let weights_flat = weights.clone().reshape([total_size as i32]);
+    // Default implementation: standard tensor operations
+    #[cfg(not(feature = "fused-kernels"))]
+    {
+        let device = weights.device();
 
-    // Select using linear indices (select along dimension 0 on the flattened tensor)
-    weights_flat.select(0, linear_idx)
+        // Compute linear indices: batch_idx * batch_stride + idx0 * stride0 + idx1 * stride1 + ...
+        let batch_indices: Tensor<WgpuBackend, 1, burn::tensor::Int> = Tensor::from_data(
+            (0..batch_size)
+                .map(|i| i as i32)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            &device,
+        );
+
+        let batch_stride_tensor =
+            Tensor::from_data(vec![batch_stride as i32; batch_size].as_slice(), &device);
+        let mut linear_idx = batch_indices * batch_stride_tensor;
+
+        for (idx, &stride_val) in indices.iter().zip(strides.iter()) {
+            let stride_tensor =
+                Tensor::from_data(vec![stride_val as i32; batch_size].as_slice(), &device);
+            linear_idx = linear_idx + idx.clone() * stride_tensor;
+        }
+
+        // Flatten weights to 1D for efficient indexing
+        let total_size: usize = dims.iter().product();
+        let weights_flat = weights.clone().reshape([total_size as i32]);
+
+        // Select using linear indices (select along dimension 0 on the flattened tensor)
+        weights_flat.select(0, linear_idx)
+    }
 }
 
 /// Batch gather with an extra "k" dimension for interactions.

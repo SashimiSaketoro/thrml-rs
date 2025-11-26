@@ -22,12 +22,15 @@ use thrml_samplers::{
 /// An EBM with the Ising energy function.
 ///
 /// E(s) = -β * (Σ_i b_i * s_i + Σ_(i,j) J_ij * s_i * s_j)
+#[derive(Clone)]
 pub struct IsingEBM {
     pub nodes: Vec<Node>,
     pub biases: Tensor<WgpuBackend, 1>,
     pub edges: Vec<Edge>,
     pub weights: Tensor<WgpuBackend, 1>,
     pub beta: Tensor<WgpuBackend, 1>,
+    /// Cached beta value on CPU (avoids GPU sync)
+    beta_cached: f32,
     /// Cached node shape/dtype map
     node_shape_dtypes: IndexMap<NodeType, TensorSpec>,
 }
@@ -56,14 +59,42 @@ impl IsingEBM {
             },
         );
 
+        // Cache beta value on CPU to avoid GPU sync during training
+        let beta_cached: f32 = beta
+            .clone()
+            .into_data()
+            .to_vec()
+            .map(|v: Vec<f32>| v.first().copied().unwrap_or(1.0))
+            .unwrap_or(1.0);
+
         IsingEBM {
             nodes,
             biases,
             edges,
             weights,
             beta,
+            beta_cached,
             node_shape_dtypes,
         }
+    }
+
+    /// Update weights and biases in-place (avoids full model recreation).
+    ///
+    /// This is much faster than calling `IsingEBM::new()` because it only
+    /// updates the tensor fields without rebuilding the node/edge structures.
+    pub fn update_weights(
+        &mut self,
+        new_weights: Tensor<WgpuBackend, 1>,
+        new_biases: Tensor<WgpuBackend, 1>,
+    ) {
+        self.weights = new_weights;
+        self.biases = new_biases;
+    }
+
+    /// Get the cached beta value (avoids GPU sync).
+    #[inline]
+    pub fn beta_value(&self) -> f32 {
+        self.beta_cached
     }
 
     /// Get the factors that make up this Ising EBM.
@@ -191,6 +222,107 @@ impl AbstractEBM for IsingEBM {
         let total = -beta * (bias_energy + edge_energy);
 
         Tensor::from_data(vec![total].as_slice(), device)
+    }
+}
+
+use crate::ebm::BatchedEBM;
+use std::collections::HashMap;
+
+impl BatchedEBM for IsingEBM {
+    fn energy_batched(
+        &self,
+        states: &Tensor<WgpuBackend, 2>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        let [_batch_size, n_nodes] = states.dims();
+
+        // Validate dimensions
+        if n_nodes != self.nodes.len() {
+            panic!(
+                "State dimension {} does not match model nodes {}",
+                n_nodes,
+                self.nodes.len()
+            );
+        }
+
+        // Convert {0,1} states to {-1,+1} spins
+        let spins = states.clone() * 2.0 - 1.0; // [batch, nodes]
+
+        // === Bias energy: sum_i(b_i * s_i) ===
+        // biases: [nodes] -> [1, nodes] for broadcasting
+        let biases_expanded = self.biases.clone().unsqueeze_dim::<2>(0);
+        let bias_energy: Tensor<WgpuBackend, 1> = (spins.clone() * biases_expanded)
+            .sum_dim(1)
+            .squeeze_dim::<1>(1);
+
+        // === Edge energy: sum_ij(J_ij * s_i * s_j) ===
+        let edge_energy = self.compute_edge_energy_batched(&spins, device);
+
+        // === Total energy: E = -β * (bias + edge) ===
+        let beta_val = self.beta.clone().into_data().to_vec::<f32>().unwrap()[0];
+        (bias_energy + edge_energy) * (-beta_val)
+    }
+}
+
+impl IsingEBM {
+    /// Compute edge energy for batch using tensor gather operations.
+    fn compute_edge_energy_batched(
+        &self,
+        spins: &Tensor<WgpuBackend, 2>, // [batch, nodes]
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        if self.edges.is_empty() {
+            let batch_size = spins.dims()[0];
+            return Tensor::zeros([batch_size], device);
+        }
+
+        let [batch_size, _] = spins.dims();
+
+        // Build node-to-index map (do this once, could be cached)
+        let node_to_idx: HashMap<usize, i32> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id(), i as i32))
+            .collect();
+
+        // Build edge endpoint index tensors
+        let edge_i: Vec<i32> = self
+            .edges
+            .iter()
+            .map(|(n1, _)| *node_to_idx.get(&n1.id()).unwrap_or(&0))
+            .collect();
+        let edge_j: Vec<i32> = self
+            .edges
+            .iter()
+            .map(|(_, n2)| *node_to_idx.get(&n2.id()).unwrap_or(&0))
+            .collect();
+
+        let idx_i: Tensor<WgpuBackend, 1, burn::tensor::Int> =
+            Tensor::from_data(edge_i.as_slice(), device);
+        let idx_j: Tensor<WgpuBackend, 1, burn::tensor::Int> =
+            Tensor::from_data(edge_j.as_slice(), device);
+
+        // Expand indices for batched gather: [n_edges] -> [batch, n_edges]
+        let idx_i_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = idx_i
+            .unsqueeze_dim::<2>(0)
+            .repeat_dim(0, batch_size);
+        let idx_j_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = idx_j
+            .unsqueeze_dim::<2>(0)
+            .repeat_dim(0, batch_size);
+
+        // Gather spin values at edge endpoints
+        // spins: [batch, nodes], idx: [batch, edges] -> s: [batch, edges]
+        let s_i: Tensor<WgpuBackend, 2> = spins.clone().gather(1, idx_i_2d);
+        let s_j: Tensor<WgpuBackend, 2> = spins.clone().gather(1, idx_j_2d);
+
+        // weights: [edges] -> [1, edges]
+        let weights_expanded = self.weights.clone().unsqueeze_dim::<2>(0);
+
+        // Edge energy: sum over edges of (s_i * s_j * J_ij)
+        (s_i * s_j * weights_expanded)
+            .sum_dim(1)
+            .squeeze_dim::<1>(1)
     }
 }
 
@@ -415,19 +547,21 @@ pub fn estimate_kl_grad(
 ) -> Result<(Tensor<WgpuBackend, 1>, Tensor<WgpuBackend, 1>), String> {
     let (key_pos, key_neg) = key.split_two();
 
-    // For simplicity, we'll process the first batch only
-    // A full implementation would vmap over batches
+    // Get cached beta value (no GPU sync!)
+    let beta: f32 = training_spec.ebm.beta_value();
 
     // Positive phase: estimate moments with data clamped
-    // Combine data with conditioning values as clamped state
+    // Use random sample from batch for stochastic gradient
     let mut clamped_pos: Vec<Tensor<WgpuBackend, 1>> = Vec::new();
     for d in data {
-        // Take first row of data batch and reshape to 1D
         let dims = d.dims();
+        let batch_size = dims[0];
         let n_cols = dims[1];
-        let first_row: Tensor<WgpuBackend, 2> = d.clone().slice([0..1, 0..n_cols]);
-        // Reshape [1, n] to [n]
-        let squeezed: Tensor<WgpuBackend, 1> = first_row.reshape([n_cols as i32]);
+        // Random sample index from batch
+        let sample_idx = (key_pos.0 as usize) % batch_size;
+        let row: Tensor<WgpuBackend, 2> =
+            d.clone().slice([sample_idx..sample_idx + 1, 0..n_cols]);
+        let squeezed: Tensor<WgpuBackend, 1> = row.reshape([n_cols as i32]);
         clamped_pos.push(squeezed);
     }
     for c in conditioning_values {
@@ -460,15 +594,6 @@ pub fn estimate_kl_grad(
     )?;
 
     // Compute gradients: Δ = -β(positive - negative)
-    let beta_data: Vec<f32> = training_spec
-        .ebm
-        .beta
-        .clone()
-        .into_data()
-        .to_vec()
-        .expect("read beta");
-    let beta = beta_data[0];
-
     let grad_b = (moms_b_pos - moms_b_neg).mul_scalar(-beta);
     let grad_w = (moms_w_pos - moms_w_neg).mul_scalar(-beta);
 

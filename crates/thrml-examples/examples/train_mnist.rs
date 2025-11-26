@@ -9,78 +9,111 @@
 //! - Visible nodes (data)
 //! - Multi-scale connections (jumps at distances 1, 4, 15)
 //!
+//! ## Usage
+//!
 //! Run with: cargo run --release --features gpu --example train_mnist
+//!
+//! ### Custom paths (e.g., for external disk):
+//!
+//! ```bash
+//! cargo run --release --features gpu --example train_mnist -- \
+//!     --base-dir /Volumes/ExternalDisk/thrml
+//!
+//! # Or set individual paths:
+//! cargo run --release --features gpu --example train_mnist -- \
+//!     --data-dir /Volumes/ExternalDisk/data \
+//!     --output-dir /Volumes/ExternalDisk/output \
+//!     --cache-dir /Volumes/ExternalDisk/cache
+//!
+//! # Or use environment variables:
+//! THRML_BASE_DIR=/Volumes/ExternalDisk/thrml cargo run --release --features gpu --example train_mnist
+//! ```
 
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use burn::tensor::{Bool, Tensor};
+use clap::Parser;
 use ndarray::Array2;
 use ndarray_npy::ReadNpyExt;
 use rand::prelude::*;
 use thrml_core::backend::WgpuBackend;
 use thrml_core::block::Block;
+use thrml_core::config::{PathArgs, PathConfig};
 use thrml_core::node::{Node, NodeType};
 use thrml_models::ising::{estimate_kl_grad, hinton_init, IsingEBM, IsingTrainingSpec};
 use thrml_samplers::rng::RngKey;
 use thrml_samplers::sampling::sample_states;
 use thrml_samplers::schedule::SamplingSchedule;
 
-/// Training configuration
+/// THRML MNIST Training - GPU-Accelerated Probabilistic Computing
+#[derive(Parser, Debug, Clone)]
+#[command(author, version, about = "Train an Ising model on MNIST digits")]
 struct TrainConfig {
     /// Number of training epochs
+    #[arg(long = "epochs", short = 'e', default_value = "1000", env = "THRML_EPOCHS")]
     n_epochs: usize,
-    /// Batch size
-    batch_size: usize,
-    /// Learning rate
-    learning_rate: f32,
-    /// Side length of the hidden grid
-    side_len: usize,
-    /// Jump distances for connections
-    jumps: Vec<usize>,
-    /// Warmup iterations for negative phase
-    n_warmup_neg: usize,
-    /// Number of samples for negative phase
-    n_samples_neg: usize,
-    /// Steps per sample for negative phase
-    steps_per_sample_neg: usize,
-    /// Warmup iterations for positive phase
-    n_warmup_pos: usize,
-    /// Number of samples for positive phase
-    n_samples_pos: usize,
-    /// Steps per sample for positive phase
-    steps_per_sample_pos: usize,
-    /// Random seed
-    seed: u64,
-    /// Target digit classes
-    target_classes: Vec<usize>,
-    /// Number of label spots per class
-    num_label_spots: usize,
-    /// Evaluate every N epochs
-    eval_every: usize,
-}
 
-impl Default for TrainConfig {
-    fn default() -> Self {
-        Self {
-            n_epochs: 10,
-            batch_size: 32,
-            learning_rate: 0.001,
-            side_len: 40,
-            jumps: vec![1, 4, 15],
-            n_warmup_neg: 100,
-            n_samples_neg: 20,
-            steps_per_sample_neg: 5,
-            n_warmup_pos: 100,
-            n_samples_pos: 20,
-            steps_per_sample_pos: 5,
-            seed: 42,
-            target_classes: vec![0, 3, 4],
-            num_label_spots: 10,
-            eval_every: 2,
-        }
-    }
+    /// Batch size
+    #[arg(long, short = 'b', default_value = "32", env = "THRML_BATCH_SIZE")]
+    batch_size: usize,
+
+    /// Learning rate
+    #[arg(long, short = 'l', default_value = "0.001", env = "THRML_LR")]
+    learning_rate: f32,
+
+    /// Hidden grid side length (grid will be side_len × side_len)
+    #[arg(long, default_value = "40")]
+    side_len: usize,
+
+    /// Jump distances for connections (comma-separated)
+    #[arg(long, value_delimiter = ',', default_values_t = vec![1, 4, 15])]
+    jumps: Vec<usize>,
+
+    /// Negative phase warmup iterations
+    #[arg(long, default_value = "50")]
+    warmup_neg: usize,
+
+    /// Negative phase samples
+    #[arg(long, default_value = "50")]
+    samples_neg: usize,
+
+    /// Steps per sample (negative phase)
+    #[arg(long, default_value = "5")]
+    steps_neg: usize,
+
+    /// Positive phase warmup iterations
+    #[arg(long, default_value = "50")]
+    warmup_pos: usize,
+
+    /// Positive phase samples
+    #[arg(long, default_value = "50")]
+    samples_pos: usize,
+
+    /// Steps per sample (positive phase)
+    #[arg(long, default_value = "5")]
+    steps_pos: usize,
+
+    /// Random seed
+    #[arg(long, short = 's', default_value = "42")]
+    seed: u64,
+
+    /// Target digit classes (comma-separated)
+    #[arg(long, value_delimiter = ',', default_values_t = vec![0, 3, 4])]
+    target_classes: Vec<usize>,
+
+    /// Number of label spots per class
+    #[arg(long, default_value = "10")]
+    label_spots: usize,
+
+    /// Evaluate every N epochs
+    #[arg(long, default_value = "50")]
+    eval_every: usize,
+
+    /// Path configuration (cache, data, output directories)
+    #[command(flatten)]
+    paths: PathArgs,
 }
 
 /// Creates a double-grid graph structure for the Ising model.
@@ -368,7 +401,7 @@ fn evaluate(
                     let predicted = extract_label(
                         &data_slice,
                         config.target_classes.len(),
-                        config.num_label_spots,
+                        config.label_spots,
                     );
 
                     if predicted == class_idx {
@@ -412,25 +445,23 @@ fn main() {
     println!("║         GPU-Accelerated Probabilistic Computing              ║");
     println!("╚══════════════════════════════════════════════════════════════╝\n");
 
+    // Parse all configuration from CLI/env
+    let config = TrainConfig::parse();
+
+    // Create path configuration from flattened args
+    let path_config = PathConfig::from_path_args(config.paths.clone());
+    path_config.print_summary();
+    println!();
+
+    // Ensure output directory exists
+    if let Err(e) = path_config.ensure_dirs() {
+        eprintln!("Warning: Could not create directories: {}", e);
+    }
+
     // Initialize GPU
     ensure_metal_backend();
     let device = init_gpu_device();
     println!("✓ GPU device initialized (Metal backend)\n");
-
-    // Configuration - full 1000 epoch training run
-    let config = TrainConfig {
-        n_epochs: 1000,
-        batch_size: 32,
-        learning_rate: 0.001, // Lower LR for longer training
-        n_warmup_neg: 100,
-        n_samples_neg: 20,
-        steps_per_sample_neg: 5,
-        n_warmup_pos: 100,
-        n_samples_pos: 20,
-        steps_per_sample_pos: 5,
-        eval_every: 50, // Evaluate every 50 epochs
-        ..Default::default()
-    };
 
     println!("Training Configuration:");
     println!("  Epochs: {}", config.n_epochs);
@@ -439,30 +470,38 @@ fn main() {
     println!("  Grid size: {}×{}", config.side_len, config.side_len);
     println!("  Jumps: {:?}", config.jumps);
     println!("  Target classes: {:?}", config.target_classes);
+    println!("  Warmup (neg/pos): {}/{}", config.warmup_neg, config.warmup_pos);
+    println!("  Samples (neg/pos): {}/{}", config.samples_neg, config.samples_pos);
+    println!("  Steps (neg/pos): {}/{}", config.steps_neg, config.steps_pos);
+    println!("  Eval every: {} epochs", config.eval_every);
     println!();
 
-    // Load data - try multiple paths
-    let possible_data_dirs = [
-        "crates/thrml-models/tests/mnist_test_data",
-        "thrml-rs/crates/thrml-models/tests/mnist_test_data",
-        "../thrml-models/tests/mnist_test_data",
+    // Load data - try configured data_dir first, then fallback paths
+    let possible_data_dirs: Vec<PathBuf> = vec![
+        path_config.data_dir().join("mnist_test_data"),
+        path_config.data_dir().to_path_buf(),
+        PathBuf::from("crates/thrml-models/tests/mnist_test_data"),
+        PathBuf::from("thrml-rs/crates/thrml-models/tests/mnist_test_data"),
+        PathBuf::from("../thrml-models/tests/mnist_test_data"),
     ];
 
     let data_dir = possible_data_dirs
         .iter()
-        .find(|p| Path::new(p).join("train_data_filtered.npy").exists())
-        .map(|p| Path::new(*p));
+        .find(|p| p.join("train_data_filtered.npy").exists());
 
     let data_dir = match data_dir {
-        Some(d) => d,
+        Some(d) => d.as_path(),
         None => {
             eprintln!("Error: Could not find MNIST test data directory.");
             eprintln!("Searched in:");
             for p in &possible_data_dirs {
-                let full_path = Path::new(p).join("train_data_filtered.npy");
+                let full_path = p.join("train_data_filtered.npy");
                 eprintln!("  {:?} (exists: {})", full_path, full_path.exists());
             }
-            eprintln!("\nPlease run from the thrml-rs workspace root directory.");
+            eprintln!("\nEither:");
+            eprintln!("  1. Run from the thrml-rs workspace root directory");
+            eprintln!("  2. Set --data-dir to point to the mnist_test_data folder");
+            eprintln!("  3. Set THRML_DATA_DIR environment variable");
             return;
         }
     };
@@ -511,7 +550,7 @@ fn main() {
     println!();
 
     // Calculate dimensions
-    let label_size = config.target_classes.len() * config.num_label_spots;
+    let label_size = config.target_classes.len() * config.label_spots;
     let data_dim = 28 * 28 + label_size;
 
     // Create model architecture
@@ -544,15 +583,31 @@ fn main() {
 
     // Schedules
     let schedule_negative = SamplingSchedule::new(
-        config.n_warmup_neg,
-        config.n_samples_neg,
-        config.steps_per_sample_neg,
+        config.warmup_neg,
+        config.samples_neg,
+        config.steps_neg,
     );
     let schedule_positive = SamplingSchedule::new(
-        config.n_warmup_pos,
-        config.n_samples_pos,
-        config.steps_per_sample_pos,
+        config.warmup_pos,
+        config.samples_pos,
+        config.steps_pos,
     );
+
+    // Create training spec ONCE before training (major optimization!)
+    // The sampling programs only depend on graph structure, not weights
+    let training_spec = IsingTrainingSpec::new(
+        model.clone(),
+        training_data_blocks.clone(),
+        vec![],
+        positive_sampling_blocks.clone(),
+        negative_sampling_blocks.clone(),
+        schedule_positive.clone(),
+        schedule_negative.clone(),
+        &device,
+    )
+    .expect("Failed to create training spec");
+
+    println!("✓ Training spec created (sampling programs compiled)\n");
 
     // Training loop
     let mut key = RngKey::new(config.seed);
@@ -567,9 +622,10 @@ fn main() {
 
     for epoch in 0..config.n_epochs {
         let epoch_start = Instant::now();
-        let mut epoch_w_grad_sum = 0.0f32;
-        let mut epoch_b_grad_sum = 0.0f32;
-        let mut batch_count = 0;
+        // GPU-side gradient accumulators (avoid CPU sync every batch)
+        let mut epoch_w_grad_sq_sum: Tensor<WgpuBackend, 1> = Tensor::zeros([1], &device);
+        let mut epoch_b_grad_sq_sum: Tensor<WgpuBackend, 1> = Tensor::zeros([1], &device);
+        let mut batch_count = 0usize;
 
         let elapsed = training_start.elapsed().as_secs_f32();
         let eta = if epoch > 0 {
@@ -588,8 +644,8 @@ fn main() {
         let mut rng = StdRng::seed_from_u64(config.seed + epoch as u64);
         indices.shuffle(&mut rng);
 
-        for batch_idx in 0..n_batches.min(100) {
-            // Use up to 100 batches per epoch
+        let batches_per_epoch = n_batches.min(100); // Cap at 100 batches per epoch
+        for batch_idx in 0..batches_per_epoch {
             let start_idx = batch_idx * config.batch_size;
             let end_idx = (start_idx + config.batch_size).min(train_dims[0]);
 
@@ -627,37 +683,7 @@ fn main() {
                 .map(|t| t.squeeze::<1>())
                 .collect();
 
-            // Create training spec
-            let model_for_spec = IsingEBM::new(
-                all_nodes.clone(),
-                all_edges.clone(),
-                model.biases.clone(),
-                model.weights.clone(),
-                model.beta.clone(),
-            );
-
-            let training_spec = match IsingTrainingSpec::new(
-                model_for_spec,
-                training_data_blocks.clone(),
-                vec![],
-                positive_sampling_blocks.clone(),
-                negative_sampling_blocks.clone(),
-                schedule_positive.clone(),
-                schedule_negative.clone(),
-                &device,
-            ) {
-                Ok(spec) => spec,
-                Err(e) => {
-                    eprintln!(
-                        "    Batch {}: Failed to create training spec: {}",
-                        batch_idx + 1,
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            // Compute gradients
+            // Compute gradients (using pre-created training spec)
             let result = estimate_kl_grad(
                 keys[0].clone(),
                 &training_spec,
@@ -672,52 +698,36 @@ fn main() {
 
             match result {
                 Ok((grad_w, grad_b)) => {
-                    // SGD update
+                    // SGD update - keep on GPU
                     let new_weights = model.weights.clone() - grad_w.clone() * config.learning_rate;
                     let new_biases = model.biases.clone() - grad_b.clone() * config.learning_rate;
 
-                    // Gradient norms
-                    let w_norm: f32 = grad_w
-                        .clone()
-                        .powf_scalar(2.0)
-                        .sum()
-                        .sqrt()
-                        .into_data()
-                        .to_vec::<f32>()
-                        .expect("read norm")[0];
-                    let b_norm: f32 = grad_b
-                        .clone()
-                        .powf_scalar(2.0)
-                        .sum()
-                        .sqrt()
-                        .into_data()
-                        .to_vec::<f32>()
-                        .expect("read norm")[0];
-
-                    epoch_w_grad_sum += w_norm;
-                    epoch_b_grad_sum += b_norm;
+                    // Accumulate gradient squared norms on GPU (no CPU sync!)
+                    let w_sq = grad_w.clone().powf_scalar(2.0).sum();
+                    let b_sq = grad_b.clone().powf_scalar(2.0).sum();
+                    epoch_w_grad_sq_sum = epoch_w_grad_sq_sum + w_sq;
+                    epoch_b_grad_sq_sum = epoch_b_grad_sq_sum + b_sq;
                     batch_count += 1;
 
-                    // Progress indicator
-                    if (batch_idx + 1) % 10 == 0 {
+                    // Progress indicator - only sync to CPU every 25 batches
+                    if (batch_idx + 1) % 25 == 0 {
+                        // Read accumulated values for logging (single sync point)
+                        let w_rms: f32 = (epoch_w_grad_sq_sum.clone() / batch_count as f32)
+                            .sqrt()
+                            .into_data()
+                            .to_vec::<f32>()
+                            .unwrap_or(vec![0.0])[0];
                         print!(
-                            "  Batch {}/{}: grad_w={:.2}, grad_b={:.2}\r",
+                            "  Batch {}/{}: grad_rms={:.4}\r",
                             batch_idx + 1,
-                            n_batches.min(50),
-                            w_norm,
-                            b_norm
+                            batches_per_epoch,
+                            w_rms
                         );
                         std::io::Write::flush(&mut std::io::stdout()).ok();
                     }
 
-                    // Update model
-                    model = IsingEBM::new(
-                        all_nodes.clone(),
-                        all_edges.clone(),
-                        new_biases,
-                        new_weights,
-                        Tensor::from_data([1.0f32].as_slice(), &device),
-                    );
+                    // Update model weights in-place
+                    model.update_weights(new_weights, new_biases);
                 }
                 Err(e) => {
                     if batch_idx == 0 {
@@ -728,22 +738,28 @@ fn main() {
         }
         println!();
 
-        let avg_w_grad = if batch_count > 0 {
-            epoch_w_grad_sum / batch_count as f32
+        // Compute epoch averages from GPU accumulators (single sync per epoch)
+        let (avg_w_grad, avg_b_grad) = if batch_count > 0 {
+            let w_rms: f32 = (epoch_w_grad_sq_sum / batch_count as f32)
+                .sqrt()
+                .into_data()
+                .to_vec::<f32>()
+                .unwrap_or(vec![0.0])[0];
+            let b_rms: f32 = (epoch_b_grad_sq_sum / batch_count as f32)
+                .sqrt()
+                .into_data()
+                .to_vec::<f32>()
+                .unwrap_or(vec![0.0])[0];
+            (w_rms, b_rms)
         } else {
-            0.0
-        };
-        let avg_b_grad = if batch_count > 0 {
-            epoch_b_grad_sum / batch_count as f32
-        } else {
-            0.0
+            (0.0, 0.0)
         };
         epoch_grad_norms.push((avg_w_grad, avg_b_grad));
 
         let epoch_time = epoch_start.elapsed();
         println!("  Batches processed: {}", batch_count);
         println!(
-            "  Avg gradient norms: weights={:.4}, biases={:.4}",
+            "  Avg gradient RMS: weights={:.4}, biases={:.4}",
             avg_w_grad, avg_b_grad
         );
         println!("  Epoch time: {:.2}s", epoch_time.as_secs_f32());

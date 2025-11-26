@@ -17,6 +17,7 @@ rust-version.workspace = true
 thrml-core = { path = "../thrml-core" }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-observers = { path = "../thrml-observers" }
+thrml-kernels = { path = "../thrml-kernels", optional = true }
 burn = { workspace = true }
 burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
@@ -32,3 +33,4 @@ rand = { workspace = true }
 [features]
 default = ["gpu"]
 gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-observers/gpu"]
+fused-kernels = ["thrml-kernels", "thrml-kernels/gpu"]

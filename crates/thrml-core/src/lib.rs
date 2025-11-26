@@ -27,6 +27,7 @@
 pub mod backend;
 pub mod block;
 pub mod blockspec;
+pub mod config;
 pub mod interaction;
 pub mod node;
 pub mod state_tree;
@@ -34,6 +35,7 @@ pub mod state_tree;
 pub use backend::*;
 pub use block::*;
 pub use blockspec::*;
+pub use config::*;
 pub use interaction::*;
 pub use node::*;
 pub use state_tree::*;

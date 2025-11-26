@@ -12,15 +12,15 @@ ported from [Extropic's THRML](https://github.com/extropic-ai/thrml) library, wi
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Multiple backend support:
+- **GPU Acceleration**: Multiple backend support:
   - **WGPU** (default): Metal (macOS), Vulkan (Linux/Windows)
   - **CUDA**: Native NVIDIA GPU support
-- 🎲 **Block Gibbs Sampling**: Efficient parallel sampling for PGMs
-- 🧠 **Energy-Based Models**: Ising models, discrete EBMs, Gaussian PGMs
-- 🔢 **Mixed Variable Types**: Spin, categorical, and continuous nodes
-- 🔄 **Deterministic RNG**: Reproducible sampling with ChaCha8-based key splitting
-- 📊 **Moment Estimation**: Built-in observers for computing statistics
-- 📈 **Training Support**: Contrastive divergence, KL gradient estimation
+- **Block Gibbs Sampling**: Efficient parallel sampling for PGMs
+- **Energy-Based Models**: Ising models, discrete EBMs, Gaussian PGMs
+- **Mixed Variable Types**: Spin, categorical, and continuous nodes
+- **Deterministic RNG**: Reproducible sampling with ChaCha8-based key splitting
+- **Moment Estimation**: Built-in observers for computing statistics
+- **Training Support**: Contrastive divergence, KL gradient estimation
 
 ## Quick Start
 

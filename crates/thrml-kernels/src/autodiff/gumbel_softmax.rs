@@ -51,7 +51,9 @@ pub fn gumbel_softmax<B: Backend>(
         // Forward pass: use hard one-hot
         // Backward pass: gradients flow through y_soft
         let indices = y_soft.clone().argmax(1); // [batch_size, 1]
-        let y_hard = one_hot::<B>(indices.squeeze::<1>(), n_categories, device);
+                                                // Use reshape instead of squeeze to handle batch_size=1 case
+        let indices_flat: Tensor<B, 1, Int> = indices.reshape([batch_size]);
+        let y_hard = one_hot::<B>(indices_flat, n_categories, device);
 
         // The trick: y_hard - y_soft.detach() + y_soft
         // Forward: returns y_hard

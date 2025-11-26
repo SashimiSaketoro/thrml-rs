@@ -174,9 +174,9 @@ fn load_npy_as_bool_tensor(
 #[cfg(feature = "gpu")]
 #[test]
 fn test_mnist_model_creation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Configuration matching Python test
@@ -225,9 +225,9 @@ fn test_mnist_model_creation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_mnist_data_loading() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Load training data
@@ -273,9 +273,9 @@ fn test_mnist_data_loading() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_mnist_training_setup() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Configuration
@@ -388,10 +388,10 @@ fn test_mnist_training_setup() {
 #[test]
 #[ignore]
 fn test_mnist_training_full() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_models::ising::estimate_kl_grad;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Load training data

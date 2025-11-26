@@ -11,9 +11,9 @@ use thrml_core::node::{Node, NodeType};
 #[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_good() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_size = 4;
@@ -38,9 +38,9 @@ fn test_interaction_group_good() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_bad_tail_size() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_size = 4;
@@ -69,9 +69,9 @@ fn test_interaction_group_bad_tail_size() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_bad_interaction_size() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_size = 4;
@@ -101,9 +101,9 @@ fn test_interaction_group_bad_interaction_size() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_n_spin_validation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_size = 4;

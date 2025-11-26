@@ -10,7 +10,7 @@ use thrml_core::backend::WgpuBackend;
 /// 5. Run sampling
 ///
 /// The Ising model energy is: E(s) = -β * (Σ b_i * s_i + Σ J_ij * s_i * s_j)
-use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+use thrml_core::backend::{ensure_backend, init_gpu_device};
 use thrml_core::block::Block;
 use thrml_core::node::{Node, NodeType};
 use thrml_models::ising::{hinton_init, IsingEBM};
@@ -22,7 +22,7 @@ fn main() {
     println!("=========================\n");
 
     // Initialize GPU (Metal on macOS)
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
     println!("✓ GPU device initialized\n");
 

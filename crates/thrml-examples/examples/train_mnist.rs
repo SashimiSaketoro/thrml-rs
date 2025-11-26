@@ -440,7 +440,7 @@ fn evaluate(
 }
 
 fn main() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║         THRML-RS MNIST Training Example                      ║");
@@ -461,7 +461,7 @@ fn main() {
     }
 
     // Initialize GPU
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
     println!("✓ GPU device initialized (Metal backend)\n");
 

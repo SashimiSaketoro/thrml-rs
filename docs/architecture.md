@@ -173,10 +173,10 @@ THRML-RS uses [Burn](https://burn.dev) with the WGPU backend, which provides:
 - Automatic device selection
 
 ```rust
-use thrml_core::backend::{init_gpu_device, ensure_metal_backend};
+use thrml_core::backend::{init_gpu_device, ensure_backend};
 
 // Ensure Metal is used on macOS
-ensure_metal_backend();
+ensure_backend();
 
 // Initialize default GPU device
 let device = init_gpu_device();

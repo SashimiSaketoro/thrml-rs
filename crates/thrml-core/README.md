@@ -17,10 +17,10 @@ This crate provides the foundational types for building probabilistic graphical 
 The `gpu` feature (enabled by default) provides GPU acceleration via WGPU:
 
 ```rust
-use thrml_core::backend::{init_gpu_device, ensure_metal_backend};
+use thrml_core::backend::{init_gpu_device, ensure_backend};
 
 // Initialize GPU
-ensure_metal_backend();
+ensure_backend();
 let device = init_gpu_device();
 ```
 

@@ -39,6 +39,18 @@ pub fn init_gpu_device() -> WgpuDevice {
     WgpuDevice::default()
 }
 
+/// Auto-select the best WGPU backend for the current platform
+/// - macOS: Metal
+/// - Linux/Windows: Vulkan
+#[cfg(feature = "gpu")]
+pub fn ensure_backend() {
+    #[cfg(target_os = "macos")]
+    std::env::set_var("BURN_WGPU_BACKEND", "metal");
+
+    #[cfg(not(target_os = "macos"))]
+    std::env::set_var("BURN_WGPU_BACKEND", "vulkan");
+}
+
 /// Force Metal backend selection (macOS only)
 #[cfg(all(feature = "gpu", target_os = "macos"))]
 pub fn ensure_metal_backend() {

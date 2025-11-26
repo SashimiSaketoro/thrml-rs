@@ -4,7 +4,7 @@ use thrml_models::discrete_ebm::batch_gather;
 
 #[test]
 fn test_batch_gather_3d() {
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Test case: weights [2, 3, 4], indices [2], [2]
@@ -53,7 +53,7 @@ fn test_batch_gather_3d() {
 
 #[test]
 fn test_batch_gather_2d() {
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Test case: weights [4, 3, 1], indices [4], [4] (need 2 indices for 3D tensor)

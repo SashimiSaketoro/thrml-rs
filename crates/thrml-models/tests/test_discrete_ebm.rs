@@ -15,9 +15,9 @@ use thrml_models::factor::AbstractFactor;
 #[cfg(feature = "gpu")]
 #[test]
 fn test_discrete_ebm_factor_creation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let fac_size = 4;
@@ -40,9 +40,9 @@ fn test_discrete_ebm_factor_creation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_discrete_ebm_factor_wrong_leading_dim() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let fac_size = 4;
@@ -72,9 +72,9 @@ fn test_discrete_ebm_factor_wrong_leading_dim() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_spin_ebm_factor() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let n_nodes = 3;
@@ -94,9 +94,9 @@ fn test_spin_ebm_factor() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_categorical_ebm_factor() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let n_cats = 3usize;
@@ -124,9 +124,9 @@ fn test_categorical_ebm_factor() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_square_discrete_ebm_factor() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_len = 4;
@@ -163,9 +163,9 @@ fn test_square_discrete_ebm_factor() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_square_factor_not_square_fails() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let block_len = 4;
@@ -200,9 +200,9 @@ fn test_square_factor_not_square_fails() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_to_interaction_groups() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let n_cats = 3;
@@ -249,9 +249,9 @@ fn test_to_interaction_groups() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_spin_product() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Test with some spin values (bool tensors)
@@ -287,9 +287,9 @@ fn test_spin_product() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_spin_product_empty() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let product = spin_product(&[], &device);
@@ -303,9 +303,9 @@ fn test_spin_product_empty() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_batch_gather() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create a simple 3D tensor [2, 3, 3] (batch=2, 3x3 matrix per batch)
@@ -344,9 +344,9 @@ fn test_batch_gather() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_split_states() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create some state tensors

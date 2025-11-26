@@ -345,9 +345,9 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_generate_all_states_binary() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         let states = generate_all_states_binary(3, &device);
@@ -365,9 +365,9 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_generate_all_states_categorical() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         let states = generate_all_states_categorical(2, 3, &device);

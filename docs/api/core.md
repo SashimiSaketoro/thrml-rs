@@ -264,20 +264,20 @@ Initialize the default GPU device.
 pub fn init_gpu_device() -> WgpuDevice;
 ```
 
-### `ensure_metal_backend`
+### `ensure_backend`
 
 Ensure Metal backend is used on macOS (for debugging).
 
 ```rust
-pub fn ensure_metal_backend();
+pub fn ensure_backend();
 ```
 
 **Example:**
 
 ```rust
-use thrml_core::backend::{init_gpu_device, ensure_metal_backend};
+use thrml_core::backend::{init_gpu_device, ensure_backend};
 
-ensure_metal_backend();  // Optional: verify Metal on macOS
+ensure_backend();  // Optional: verify Metal on macOS
 let device = init_gpu_device();
 ```
 

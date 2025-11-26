@@ -15,7 +15,7 @@
 
 use burn::tensor::{Distribution, Tensor};
 use indexmap::IndexMap;
-use thrml_core::backend::{ensure_metal_backend, init_gpu_device, WgpuBackend};
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::interaction::{InteractionData, InteractionGroup};
 use thrml_core::node::{Node, NodeType, TensorSpec};
@@ -28,7 +28,7 @@ fn main() {
     println!("=== Gaussian-Bernoulli Mixed EBM Example ===\n");
 
     // Initialize GPU
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Parameters

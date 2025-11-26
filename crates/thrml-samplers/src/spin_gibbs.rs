@@ -217,9 +217,9 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_spin_gibbs_basic() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         let sampler = SpinGibbsConditional::new();

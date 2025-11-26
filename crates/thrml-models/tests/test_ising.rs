@@ -13,9 +13,9 @@ use thrml_samplers::rng::RngKey;
 #[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create a simple 3-node chain
@@ -56,9 +56,9 @@ fn test_ising_energy() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_hinton_init() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create nodes and model
@@ -102,9 +102,9 @@ fn test_hinton_init() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_ising_sampling_program_creation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create a 5-node chain with alternating free blocks (for Gibbs sampling)
@@ -143,10 +143,10 @@ fn test_ising_sampling_program_creation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy_batched() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_models::ebm::BatchedEBM;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     // Create a simple 3-node chain
@@ -193,10 +193,10 @@ fn test_ising_energy_batched() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy_batched_vs_single() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_models::ebm::BatchedEBM;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let nodes: Vec<Node> = (0..4).map(|_| Node::new(NodeType::Spin)).collect();

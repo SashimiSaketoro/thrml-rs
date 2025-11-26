@@ -58,9 +58,9 @@ fn create_simple_setup(
 #[cfg(feature = "gpu")]
 #[test]
 fn test_block_gibbs_spec_creation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let (free_blocks, clamped_blocks, _, node_shape_dtypes) = create_simple_setup(&device);
@@ -85,11 +85,11 @@ fn test_block_gibbs_spec_creation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_block_sampling_program_creation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_samplers::bernoulli::BernoulliConditional;
     use thrml_samplers::sampler::DynConditionalSampler;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let (free_blocks, clamped_blocks, interaction_groups, node_shape_dtypes) =
@@ -117,11 +117,11 @@ fn test_block_sampling_program_creation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_sampler_count_validation() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_samplers::bernoulli::BernoulliConditional;
     use thrml_samplers::sampler::DynConditionalSampler;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let (free_blocks, clamped_blocks, interaction_groups, node_shape_dtypes) =
@@ -149,11 +149,11 @@ fn test_sampler_count_validation() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_run_blocks() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_samplers::bernoulli::BernoulliConditional;
     use thrml_samplers::sampler::DynConditionalSampler;
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let (free_blocks, clamped_blocks, interaction_groups, node_shape_dtypes) =

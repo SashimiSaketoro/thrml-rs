@@ -54,9 +54,9 @@ fn test_validate_node_groups_ragged_fails() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_spin_factor_to_interactions() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let n_nodes = 4;
@@ -109,9 +109,9 @@ fn test_spin_factor_to_interactions() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_factor_interaction_group_structure() {
-    use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+    use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-    ensure_metal_backend();
+    ensure_backend();
     let device = init_gpu_device();
 
     let n_nodes = 3;

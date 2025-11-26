@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_batch_gather_2d_sequential_vs_linear() {
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         // Simple case: weights [4, 3], indices [4]
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_batch_gather_3d_sequential_vs_linear() {
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         // Case: weights [2, 3, 4], indices [2], [2]

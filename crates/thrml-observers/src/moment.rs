@@ -256,9 +256,9 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_moment_observer_creation() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
 
-        ensure_metal_backend();
+        ensure_backend();
         let _device = init_gpu_device();
 
         // Create some test nodes

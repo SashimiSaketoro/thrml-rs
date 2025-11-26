@@ -16,9 +16,9 @@
 //! The `gpu` feature provides GPU acceleration via WGPU:
 //!
 //! ```rust,ignore
-//! use thrml_core::backend::{init_gpu_device, ensure_metal_backend};
+//! use thrml_core::backend::{init_gpu_device, ensure_backend};
 //!
-//! ensure_metal_backend();
+//! ensure_backend();
 //! let device = init_gpu_device();
 //! ```
 

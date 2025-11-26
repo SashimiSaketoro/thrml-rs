@@ -351,10 +351,10 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_linear_factor() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
         use thrml_core::node::{Node, NodeType};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         // Create continuous nodes
@@ -376,10 +376,10 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_quadratic_factor() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
         use thrml_core::node::{Node, NodeType};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         // Create continuous nodes
@@ -401,10 +401,10 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn test_coupling_factor() {
-        use thrml_core::backend::{ensure_metal_backend, init_gpu_device};
+        use thrml_core::backend::{ensure_backend, init_gpu_device};
         use thrml_core::node::{Node, NodeType};
 
-        ensure_metal_backend();
+        ensure_backend();
         let device = init_gpu_device();
 
         // Create two blocks of continuous nodes (for edges)

@@ -1,4 +1,5 @@
-#[cfg(feature = "gpu")]
+// GPU smoke test - only runs on macOS with Metal backend
+#[cfg(all(feature = "gpu", target_os = "macos"))]
 #[test]
 fn test_gpu_initialization() {
     use thrml_core::backend::*;

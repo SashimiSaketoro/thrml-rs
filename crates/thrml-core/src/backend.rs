@@ -1,20 +1,25 @@
-//! GPU Backend Selection
+//! Backend Selection
 //!
-//! THRML supports multiple GPU backends:
+//! THRML supports multiple compute backends:
 //! - **WGPU** (default): Metal (macOS), Vulkan (Linux), DX12 (Windows)
 //! - **CUDA**: NVIDIA GPUs via native CUDA (Linux/Windows)
+//! - **CPU**: Pure Rust via ndarray (no GPU required)
 //!
 //! ## Feature Flags
 //! - `gpu` (default): Enable WGPU backend
-//! - `cuda`: Enable CUDA backend
+//! - `cuda`: Enable CUDA backend (requires `gpu`)
+//! - `cpu`: Enable CPU-only backend (no GPU required)
 //!
 //! ## Usage
-//! ```ignore
-//! // WGPU backend (default)
+//! ```bash
+//! # WGPU backend (default) - Metal on macOS, Vulkan on Linux
 //! cargo build --features gpu
 //!
-//! // CUDA backend
-//! cargo build --features cuda --no-default-features
+//! # CUDA backend for NVIDIA GPUs
+//! cargo build --features cuda
+//!
+//! # CPU-only (no GPU required)
+//! cargo build --features cpu --no-default-features
 //! ```
 
 // =============================================================================
@@ -71,6 +76,25 @@ pub fn init_cuda_device_index(index: usize) -> CudaDevice {
 }
 
 // =============================================================================
+// CPU Backend (ndarray - no GPU required)
+// =============================================================================
+
+#[cfg(feature = "cpu")]
+pub use burn::backend::ndarray::NdArrayDevice;
+
+#[cfg(feature = "cpu")]
+pub type CpuBackend = burn::backend::NdArray;
+
+/// Initialize CPU device
+///
+/// This backend requires no GPU and works on any system.
+/// Useful for development, testing, or systems without GPU support.
+#[cfg(feature = "cpu")]
+pub fn init_cpu_device() -> NdArrayDevice {
+    NdArrayDevice::default()
+}
+
+// =============================================================================
 // Backend Detection Utilities
 // =============================================================================
 
@@ -96,6 +120,17 @@ pub fn is_cuda_available() -> bool {
     false
 }
 
+/// Check if CPU backend is available
+#[cfg(feature = "cpu")]
+pub fn is_cpu_available() -> bool {
+    true
+}
+
+#[cfg(not(feature = "cpu"))]
+pub fn is_cpu_available() -> bool {
+    false
+}
+
 /// Get available backend names
 pub fn available_backends() -> Vec<&'static str> {
     let mut backends = Vec::new();
@@ -114,6 +149,9 @@ pub fn available_backends() -> Vec<&'static str> {
     
     #[cfg(feature = "cuda")]
     backends.push("cuda");
+    
+    #[cfg(feature = "cpu")]
+    backends.push("cpu-ndarray");
     
     backends
 }

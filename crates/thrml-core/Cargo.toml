@@ -18,6 +18,7 @@ burn = { workspace = true }
 burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
 burn-cuda = { workspace = true, optional = true }
+burn-ndarray = { workspace = true, optional = true }
 burn-cubecl = { version = "0.19", default-features = false, optional = true }
 petgraph = "0.7.1"
 indexmap = { workspace = true }
@@ -40,7 +41,9 @@ default = ["gpu"]
 # WGPU backend: Metal (macOS), Vulkan (Linux), DX12 (Windows)
 # This is the primary backend used throughout the crate
 gpu = ["burn/wgpu", "burn-wgpu", "burn-cubecl"]
-# CUDA backend: NVIDIA GPUs on Linux/Windows
-# Note: Currently requires `gpu` feature as the core uses WgpuBackend types
-# Full CUDA-only support requires backend abstraction (planned)
+# CUDA backend: NVIDIA GPUs on Linux/Windows  
+# Includes WGPU for type compatibility
 cuda = ["gpu", "burn/cuda", "burn-cuda"]
+# CPU backend: Pure Rust via ndarray
+# Includes WGPU for type compatibility, but CPU can be used as fallback
+cpu = ["gpu", "burn/ndarray", "burn-ndarray"]

@@ -70,6 +70,21 @@ fn test_cuda_multi_gpu() {
 }
 
 // =============================================================================
+// CPU Backend Tests
+// =============================================================================
+
+/// CPU backend test (always works, no GPU required)
+#[cfg(feature = "cpu")]
+#[test]
+fn test_cpu_initialization() {
+    use thrml_core::backend::*;
+    let device = init_cpu_device();
+    let tensor = burn::tensor::Tensor::<CpuBackend, 1>::zeros([4], &device);
+    assert_eq!(tensor.dims(), [4]);
+    println!("✓ CPU (ndarray) backend initialized successfully");
+}
+
+// =============================================================================
 // Backend Detection Tests (always run)
 // =============================================================================
 
@@ -80,13 +95,16 @@ fn test_available_backends() {
     let backends = available_backends();
     println!("Available backends: {:?}", backends);
     
-    // At least one backend should be available if gpu or cuda feature is enabled
-    #[cfg(any(feature = "gpu", feature = "cuda"))]
-    assert!(!backends.is_empty(), "No GPU backends available");
+    // At least one backend should be available if any feature is enabled
+    #[cfg(any(feature = "gpu", feature = "cuda", feature = "cpu"))]
+    assert!(!backends.is_empty(), "No backends available");
     
     #[cfg(feature = "gpu")]
     assert!(is_wgpu_available());
     
     #[cfg(feature = "cuda")]
     assert!(is_cuda_available());
+    
+    #[cfg(feature = "cpu")]
+    assert!(is_cpu_available());
 }

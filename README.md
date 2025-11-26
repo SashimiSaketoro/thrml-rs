@@ -81,8 +81,11 @@ thrml-observers = "0.1"
 
 ### Feature Flags
 
-- `gpu` (default): Enable WGPU backend (Metal/Vulkan/DX12)
-- `cuda`: Enable CUDA backend in addition to WGPU (requires NVIDIA GPU + CUDA toolkit)
+| Feature | Backend | Use Case |
+|---------|---------|----------|
+| `gpu` (default) | WGPU | Metal (macOS), Vulkan (Linux), DX12 (Windows) |
+| `cuda` | CUDA + WGPU | NVIDIA GPUs with native CUDA |
+| `cpu` | ndarray + WGPU | Development/testing without GPU, or CPU fallback |
 
 ```bash
 # Default: WGPU backend (Metal on macOS, Vulkan on Linux)
@@ -90,6 +93,9 @@ cargo build --release
 
 # Enable CUDA support alongside WGPU
 cargo build --release --features cuda
+
+# Enable CPU backend (useful for testing or systems without GPU)
+cargo build --release --features cpu
 ```
 
 ## Requirements

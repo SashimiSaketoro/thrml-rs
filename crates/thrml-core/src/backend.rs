@@ -134,24 +134,24 @@ pub fn is_cpu_available() -> bool {
 /// Get available backend names
 pub fn available_backends() -> Vec<&'static str> {
     let mut backends = Vec::new();
-    
+
     #[cfg(feature = "gpu")]
     {
         #[cfg(target_os = "macos")]
         backends.push("wgpu-metal");
-        
+
         #[cfg(target_os = "linux")]
         backends.push("wgpu-vulkan");
-        
+
         #[cfg(target_os = "windows")]
         backends.push("wgpu-dx12");
     }
-    
+
     #[cfg(feature = "cuda")]
     backends.push("cuda");
-    
+
     #[cfg(feature = "cpu")]
     backends.push("cpu-ndarray");
-    
+
     backends
 }

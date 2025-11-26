@@ -55,13 +55,13 @@ fn test_cuda_initialization() {
 #[ignore] // Requires multiple GPUs - run manually
 fn test_cuda_multi_gpu() {
     use thrml_core::backend::*;
-    
+
     // Try to initialize device 0 and 1
     let device0 = init_cuda_device_index(0);
     let tensor0 = burn::tensor::Tensor::<CudaBackend, 1>::zeros([4], &device0);
     assert_eq!(tensor0.dims(), [4]);
     println!("✓ CUDA device 0 initialized");
-    
+
     // Device 1 may not exist - this is expected to fail on single-GPU systems
     let device1 = init_cuda_device_index(1);
     let tensor1 = burn::tensor::Tensor::<CudaBackend, 1>::zeros([4], &device1);
@@ -91,20 +91,20 @@ fn test_cpu_initialization() {
 #[test]
 fn test_available_backends() {
     use thrml_core::backend::*;
-    
+
     let backends = available_backends();
     println!("Available backends: {:?}", backends);
-    
+
     // At least one backend should be available if any feature is enabled
     #[cfg(any(feature = "gpu", feature = "cuda", feature = "cpu"))]
     assert!(!backends.is_empty(), "No backends available");
-    
+
     #[cfg(feature = "gpu")]
     assert!(is_wgpu_available());
-    
+
     #[cfg(feature = "cuda")]
     assert!(is_cuda_available());
-    
+
     #[cfg(feature = "cpu")]
     assert!(is_cpu_available());
 }

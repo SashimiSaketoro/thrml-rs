@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
 `thrml-rs` is a pure Rust implementation of GPU-accelerated sampling for probabilistic graphical models (PGMs), 
-inspired by [Extropic's THRML](https://github.com/extropic-ai/thrml) library.
+ported from [Extropic's THRML](https://github.com/extropic-ai/thrml) library, with a few tweaks. 
 
 ## Features
 

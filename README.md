@@ -12,7 +12,9 @@ inspired by [Extropic's THRML](https://github.com/extropic-ai/thrml) library.
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Native Metal (macOS), Vulkan (Linux/Windows) via WGPU
+- 🚀 **GPU Acceleration**: Multiple backend support:
+  - **WGPU** (default): Metal (macOS), Vulkan (Linux/Windows)
+  - **CUDA**: Native NVIDIA GPU support
 - 🎲 **Block Gibbs Sampling**: Efficient parallel sampling for PGMs
 - 🧠 **Energy-Based Models**: Ising models, discrete EBMs, Gaussian PGMs
 - 🔢 **Mixed Variable Types**: Spin, categorical, and continuous nodes
@@ -79,12 +81,22 @@ thrml-observers = "0.1"
 
 ### Feature Flags
 
-- `gpu` (default): Enable GPU acceleration via WGPU
+- `gpu` (default): Enable WGPU backend (Metal/Vulkan/DX12)
+- `cuda`: Enable CUDA backend in addition to WGPU (requires NVIDIA GPU + CUDA toolkit)
+
+```bash
+# Default: WGPU backend (Metal on macOS, Vulkan on Linux)
+cargo build --release
+
+# Enable CUDA support alongside WGPU
+cargo build --release --features cuda
+```
 
 ## Requirements
 
 - Rust 1.89+ (stable) - required by Burn 0.19
-- GPU with Metal (macOS) or Vulkan (Linux/Windows) support
+- **WGPU backend**: GPU with Metal (macOS) or Vulkan (Linux/Windows) support
+- **CUDA backend**: NVIDIA GPU with CUDA toolkit installed
 
 ## Examples
 
@@ -121,10 +133,19 @@ cargo run --release --example train_mnist
 
 ## Performance
 
-THRML-RS leverages the Burn deep learning framework with WGPU backend for:
+THRML-RS leverages the [Burn](https://burn.dev) deep learning framework for GPU acceleration:
+
+| Backend | Platform | GPU Support |
+|---------|----------|-------------|
+| WGPU-Metal | macOS | Apple Silicon, AMD, Intel |
+| WGPU-Vulkan | Linux/Windows | NVIDIA, AMD, Intel |
+| CUDA | Linux/Windows | NVIDIA (native) |
+
+Key optimizations:
 - Native Metal acceleration on Apple Silicon
-- Vulkan support on Linux and Windows
+- CUDA for maximum performance on NVIDIA GPUs
 - Efficient tensor operations with automatic batching
+- Fused GPU kernels for sampling operations
 
 ## Contributing
 

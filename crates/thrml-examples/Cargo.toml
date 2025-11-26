@@ -40,9 +40,7 @@ path = "examples/train_mnist.rs"
 thrml-core = { path = "../thrml-core" }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-models = { path = "../thrml-models" }
-thrml-observers = { path = "../thrml-observers" }
 burn = { version = "0.19", default-features = false }
-burn-wgpu = { version = "0.19", default-features = false, optional = true }
 
 # Visualization and graph libraries
 plotters = { version = "0.3", features = ["bitmap_backend", "line_series", "svg_backend"] }
@@ -63,9 +61,7 @@ gpu = [
     "thrml-core/gpu",
     "thrml-samplers/gpu",
     "thrml-models/gpu",
-    "thrml-observers/gpu",
     "burn/wgpu",
-    "burn-wgpu",
 ]
 fused-kernels = [
     "thrml-samplers/fused-kernels",

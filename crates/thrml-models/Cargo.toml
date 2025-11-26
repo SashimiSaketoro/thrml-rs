@@ -19,16 +19,18 @@ thrml-samplers = { path = "../thrml-samplers" }
 thrml-observers = { path = "../thrml-observers" }
 thrml-kernels = { path = "../thrml-kernels", optional = true }
 burn = { workspace = true }
-burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
 indexmap = { workspace = true }
 
 [dev-dependencies]
-insta = "1.38"
 itertools = { workspace = true }
 ndarray = "0.16"
 ndarray-npy = "0.9"
 rand = { workspace = true }
+
+# Accessed via burn re-exports or feature flags
+[package.metadata.cargo-machete]
+ignored = ["burn-wgpu"]
 
 [features]
 default = ["gpu"]

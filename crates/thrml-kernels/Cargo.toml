@@ -19,7 +19,6 @@ thrml-core = { path = "../thrml-core", default-features = false }
 
 # Burn framework with autodiff support
 burn = { workspace = true, default-features = false, features = ["autodiff"] }
-burn-tensor = { workspace = true, default-features = false }
 
 # CubeCL for custom GPU kernels
 burn-cubecl = { version = "0.19", default-features = false, optional = true }

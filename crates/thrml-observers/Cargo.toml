@@ -18,10 +18,12 @@ thrml-core = { path = "../thrml-core" }
 burn = { workspace = true }
 burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
-indexmap = { workspace = true }
 
 [dev-dependencies]
-insta = "1.38"
+
+# These are accessed via burn re-exports or feature flags
+[package.metadata.cargo-machete]
+ignored = ["burn-tensor", "burn-wgpu"]
 
 [features]
 default = ["gpu"]

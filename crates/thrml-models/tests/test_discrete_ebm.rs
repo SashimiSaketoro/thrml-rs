@@ -1,9 +1,13 @@
 //! Tests for DiscreteEBMFactor and related types
 //!
 //! Port of Python tests/test_discrete_ebm.py
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
+
+#![cfg(feature = "gpu")]
 
 use burn::tensor::Tensor;
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::node::{Node, NodeType};
 use thrml_models::discrete_ebm::{
@@ -12,11 +16,8 @@ use thrml_models::discrete_ebm::{
 };
 use thrml_models::factor::AbstractFactor;
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_discrete_ebm_factor_creation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -37,11 +38,8 @@ fn test_discrete_ebm_factor_creation() {
     assert!(factor.is_ok(), "DiscreteEBMFactor creation should succeed");
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_discrete_ebm_factor_wrong_leading_dim() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -69,11 +67,8 @@ fn test_discrete_ebm_factor_wrong_leading_dim() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_spin_ebm_factor() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -91,11 +86,8 @@ fn test_spin_ebm_factor() {
     assert!(factor.is_ok(), "SpinEBMFactor creation should succeed");
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_categorical_ebm_factor() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -121,11 +113,8 @@ fn test_categorical_ebm_factor() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_square_discrete_ebm_factor() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -160,11 +149,8 @@ fn test_square_discrete_ebm_factor() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_square_factor_not_square_fails() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -197,11 +183,8 @@ fn test_square_factor_not_square_fails() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_to_interaction_groups() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -246,11 +229,8 @@ fn test_to_interaction_groups() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_spin_product() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -284,11 +264,8 @@ fn test_spin_product() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_spin_product_empty() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -300,11 +277,8 @@ fn test_spin_product_empty() {
     assert!((data[0] - 1.0).abs() < 1e-5);
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_batch_gather() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -341,11 +315,8 @@ fn test_batch_gather() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_split_states() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 

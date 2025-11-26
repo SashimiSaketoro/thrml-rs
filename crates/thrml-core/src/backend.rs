@@ -52,7 +52,7 @@ pub fn ensure_backend() {
 }
 
 /// Force Metal backend selection (macOS only)
-#[cfg(all(feature = "gpu", target_os = "macos"))]
+#[cfg(feature = "gpu")]
 pub fn ensure_metal_backend() {
     std::env::set_var("BURN_WGPU_BACKEND", "metal");
 }

@@ -8,7 +8,7 @@
 // =============================================================================
 
 /// WGPU Metal backend test (macOS only)
-#[cfg(all(feature = "gpu", target_os = "macos"))]
+#[cfg(feature = "gpu")]
 #[test]
 fn test_wgpu_metal_initialization() {
     use thrml_core::backend::*;

@@ -1,13 +1,16 @@
 //! Tests for extended batch_gather kernels (3+ indices)
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
 
 #[cfg(feature = "gpu")]
 mod tests {
     use burn::tensor::{Int, Tensor};
-    use thrml_core::backend::{init_gpu_device, WgpuBackend};
+    use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
     use thrml_kernels::batch_gather_fused;
 
     #[test]
     fn test_batch_gather_3_indices() {
+        ensure_backend();
         let device = init_gpu_device();
 
         // weights: [2, 3, 20] = 120 elements

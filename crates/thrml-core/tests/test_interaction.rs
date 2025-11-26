@@ -1,18 +1,20 @@
 //! Tests for InteractionGroup
 //!
 //! Port of Python tests/test_interaction.py
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
+//! Ubuntu CI runners don't have GPU access.
+
+#![cfg(feature = "gpu")]
 
 use burn::tensor::Tensor;
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::interaction::InteractionGroup;
 use thrml_core::node::{Node, NodeType};
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_good() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -35,11 +37,8 @@ fn test_interaction_group_good() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_bad_tail_size() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -66,11 +65,8 @@ fn test_interaction_group_bad_tail_size() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_bad_interaction_size() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -98,11 +94,8 @@ fn test_interaction_group_bad_interaction_size() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_interaction_group_n_spin_validation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 

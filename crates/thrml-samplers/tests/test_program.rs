@@ -1,15 +1,21 @@
 //! Tests for BlockSamplingProgram
 //!
 //! Port of Python tests/test_block_sampling.py
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
+
+#![cfg(feature = "gpu")]
 
 use burn::tensor::Tensor;
 use indexmap::IndexMap;
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::interaction::InteractionGroup;
 use thrml_core::node::{Node, NodeType, TensorSpec};
+use thrml_samplers::bernoulli::BernoulliConditional;
 use thrml_samplers::program::{BlockGibbsSpec, BlockSamplingProgram};
 use thrml_samplers::rng::RngKey;
+use thrml_samplers::sampler::DynConditionalSampler;
 use thrml_samplers::sampling::run_blocks;
 use thrml_samplers::schedule::SamplingSchedule;
 
@@ -55,11 +61,8 @@ fn create_simple_setup(
     )
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_block_gibbs_spec_creation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -82,13 +85,8 @@ fn test_block_gibbs_spec_creation() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_block_sampling_program_creation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-    use thrml_samplers::bernoulli::BernoulliConditional;
-    use thrml_samplers::sampler::DynConditionalSampler;
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -114,13 +112,8 @@ fn test_block_sampling_program_creation() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_sampler_count_validation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-    use thrml_samplers::bernoulli::BernoulliConditional;
-    use thrml_samplers::sampler::DynConditionalSampler;
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -146,13 +139,8 @@ fn test_sampler_count_validation() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_run_blocks() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-    use thrml_samplers::bernoulli::BernoulliConditional;
-    use thrml_samplers::sampler::DynConditionalSampler;
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -200,7 +188,6 @@ fn test_run_blocks() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_sampling_schedule() {
     let schedule = SamplingSchedule::new(100, 50, 10);

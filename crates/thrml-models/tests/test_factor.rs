@@ -2,12 +2,9 @@
 //!
 //! Port of Python tests/test_factor.py
 
-use burn::tensor::Tensor;
-use thrml_core::backend::WgpuBackend;
 use thrml_core::block::Block;
 use thrml_core::node::{Node, NodeType};
-use thrml_models::discrete_ebm::{DiscreteEBMFactor, SpinEBMFactor};
-use thrml_models::factor::{validate_node_groups, AbstractFactor};
+use thrml_models::factor::validate_node_groups;
 
 #[test]
 fn test_validate_node_groups_good() {
@@ -54,7 +51,10 @@ fn test_validate_node_groups_ragged_fails() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_spin_factor_to_interactions() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
+    use burn::tensor::Tensor;
+    use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
+    use thrml_models::discrete_ebm::SpinEBMFactor;
+    use thrml_models::factor::AbstractFactor;
 
     ensure_backend();
     let device = init_gpu_device();
@@ -109,7 +109,10 @@ fn test_spin_factor_to_interactions() {
 #[cfg(feature = "gpu")]
 #[test]
 fn test_factor_interaction_group_structure() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
+    use burn::tensor::Tensor;
+    use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
+    use thrml_models::discrete_ebm::DiscreteEBMFactor;
+    use thrml_models::factor::AbstractFactor;
 
     ensure_backend();
     let device = init_gpu_device();

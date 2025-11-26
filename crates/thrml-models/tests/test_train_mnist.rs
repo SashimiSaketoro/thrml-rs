@@ -9,6 +9,10 @@
 //!
 //! Note: Full training test is marked as #[ignore] as it takes several minutes.
 //! Run with: cargo test --features gpu test_train_mnist -- --ignored
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
+
+#![cfg(feature = "gpu")]
 
 use std::fs::File;
 use std::path::Path;
@@ -17,7 +21,7 @@ use burn::tensor::{Bool, Tensor};
 use ndarray::Array2;
 use ndarray_npy::ReadNpyExt;
 use rand::prelude::*;
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::node::{Node, NodeType};
 use thrml_models::ising::{hinton_init, IsingEBM, IsingSamplingProgram, IsingTrainingSpec};
@@ -171,11 +175,9 @@ fn load_npy_as_bool_tensor(
 }
 
 /// Test that we can create the full MNIST model architecture
-#[cfg(feature = "gpu")]
+
 #[test]
 fn test_mnist_model_creation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -222,11 +224,9 @@ fn test_mnist_model_creation() {
 }
 
 /// Test that we can load the MNIST data files
-#[cfg(feature = "gpu")]
+
 #[test]
 fn test_mnist_data_loading() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -270,11 +270,9 @@ fn test_mnist_data_loading() {
 }
 
 /// Test the full training setup (without actually training)
-#[cfg(feature = "gpu")]
+
 #[test]
 fn test_mnist_training_setup() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -384,11 +382,10 @@ fn test_mnist_training_setup() {
 
 /// Full training test - runs actual gradient descent
 /// This is slow (~minutes) so it's marked as ignored by default
-#[cfg(feature = "gpu")]
+
 #[test]
 #[ignore]
 fn test_mnist_training_full() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
     use thrml_models::ising::estimate_kl_grad;
 
     ensure_backend();

@@ -1,20 +1,21 @@
 //! Tests for Ising model
 //!
 //! Port of Python tests/test_ising.py
+//!
+//! Note: These tests require GPU hardware and only run on macOS (Metal backend).
+
+#![cfg(feature = "gpu")]
 
 use burn::tensor::Tensor;
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::{ensure_backend, init_gpu_device, WgpuBackend};
 use thrml_core::block::Block;
 use thrml_core::node::{Node, NodeType};
-use thrml_models::ebm::AbstractEBM;
+use thrml_models::ebm::{AbstractEBM, BatchedEBM};
 use thrml_models::ising::{hinton_init, IsingEBM, IsingSamplingProgram};
 use thrml_samplers::rng::RngKey;
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -53,11 +54,8 @@ fn test_ising_energy() {
     println!("Energy = {}", energy_val[0]);
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_hinton_init() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -99,11 +97,8 @@ fn test_hinton_init() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_ising_sampling_program_creation() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -140,12 +135,8 @@ fn test_ising_sampling_program_creation() {
     );
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy_batched() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-    use thrml_models::ebm::BatchedEBM;
-
     ensure_backend();
     let device = init_gpu_device();
 
@@ -190,12 +181,8 @@ fn test_ising_energy_batched() {
     }
 }
 
-#[cfg(feature = "gpu")]
 #[test]
 fn test_ising_energy_batched_vs_single() {
-    use thrml_core::backend::{ensure_backend, init_gpu_device};
-    use thrml_models::ebm::BatchedEBM;
-
     ensure_backend();
     let device = init_gpu_device();
 

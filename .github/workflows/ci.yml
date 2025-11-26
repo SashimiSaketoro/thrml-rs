@@ -12,20 +12,19 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Quick checks on Ubuntu (no GPU needed)
   check:
-    name: Check & Lint
-    runs-on: ubuntu-latest
+    name: Check
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        rust: [stable, 1.89.0]  # Burn 0.19 MSRV is 1.89
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Install Rust ${{ matrix.rust }}
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal
+          rustup default ${{ matrix.rust }}
       
       - name: Cache cargo
         uses: actions/cache@v4
@@ -36,28 +35,18 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ubuntu-cargo-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+          key: macos-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            macos-cargo-${{ matrix.rust }}-
       
       - name: Check (no GPU)
         run: cargo check --workspace --no-default-features
       
       - name: Check (with GPU)
         run: cargo check --workspace --features gpu
-      
-      - name: Clippy
-        run: cargo clippy --workspace --features gpu -- -D warnings
-      
-      - name: Build docs
-        run: cargo doc --workspace --no-deps --no-default-features
-        env:
-          RUSTDOCFLAGS: -D warnings
 
-  # Full test suite on macOS (has Metal GPU)
   test:
-    name: Test (macOS)
+    name: Test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,15 +63,101 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-cargo-test-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: Run tests (no GPU)
+      - name: Run tests (CPU only)
         run: cargo test --workspace --no-default-features
+
+  test-gpu:
+    name: GPU Tests (Metal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
       
-      - name: Run tests (with GPU)
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: macos-cargo-gpu-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run GPU tests
         run: cargo test --workspace --features gpu
 
-  # Build examples
+  clippy:
+    name: Clippy
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: macos-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Clippy (no GPU)
+        run: cargo clippy --workspace --no-default-features -- -D warnings
+      
+      - name: Clippy (with GPU)
+        run: cargo clippy --workspace --features gpu -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  docs:
+    name: Documentation
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: macos-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build docs
+        run: cargo doc --workspace --no-deps --no-default-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+
   examples:
     name: Examples
     runs-on: macos-latest

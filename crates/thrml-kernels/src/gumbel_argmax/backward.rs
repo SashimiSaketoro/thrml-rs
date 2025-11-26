@@ -42,6 +42,7 @@ use burn::tensor::Tensor;
 /// - Gumbel-Softmax with temperature annealing
 /// - REINFORCE/policy gradient methods
 /// - Straight-through estimator
+///
 /// Create zero gradient for Gumbel-max backward pass.
 ///
 /// Uses the high-level Tensor API for stability.

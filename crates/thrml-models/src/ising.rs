@@ -304,12 +304,10 @@ impl IsingEBM {
             Tensor::from_data(edge_j.as_slice(), device);
 
         // Expand indices for batched gather: [n_edges] -> [batch, n_edges]
-        let idx_i_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = idx_i
-            .unsqueeze_dim::<2>(0)
-            .repeat_dim(0, batch_size);
-        let idx_j_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = idx_j
-            .unsqueeze_dim::<2>(0)
-            .repeat_dim(0, batch_size);
+        let idx_i_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> =
+            idx_i.unsqueeze_dim::<2>(0).repeat_dim(0, batch_size);
+        let idx_j_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> =
+            idx_j.unsqueeze_dim::<2>(0).repeat_dim(0, batch_size);
 
         // Gather spin values at edge endpoints
         // spins: [batch, nodes], idx: [batch, edges] -> s: [batch, edges]
@@ -559,8 +557,7 @@ pub fn estimate_kl_grad(
         let n_cols = dims[1];
         // Random sample index from batch
         let sample_idx = (key_pos.0 as usize) % batch_size;
-        let row: Tensor<WgpuBackend, 2> =
-            d.clone().slice([sample_idx..sample_idx + 1, 0..n_cols]);
+        let row: Tensor<WgpuBackend, 2> = d.clone().slice([sample_idx..sample_idx + 1, 0..n_cols]);
         let squeezed: Tensor<WgpuBackend, 1> = row.reshape([n_cols as i32]);
         clamped_pos.push(squeezed);
     }

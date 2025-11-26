@@ -7,4 +7,3 @@
 pub mod gumbel_softmax;
 pub mod ops;
 pub mod sigmoid_bernoulli;
-

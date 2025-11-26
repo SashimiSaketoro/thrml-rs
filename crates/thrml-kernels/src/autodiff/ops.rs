@@ -10,4 +10,3 @@ pub fn zeros_like<B: Backend, const D: usize>(
 ) -> Tensor<B, D> {
     Tensor::zeros(tensor.dims(), device)
 }
-

@@ -12,8 +12,7 @@ mod tests {
 
         // weights: [2, 3, 20] = 120 elements
         let weights_data: Vec<f32> = (0..120).map(|i| i as f32).collect();
-        let weights: Tensor<WgpuBackend, 1> =
-            Tensor::from_data(weights_data.as_slice(), &device);
+        let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(weights_data.as_slice(), &device);
         let weights: Tensor<WgpuBackend, 3> = weights.reshape([2, 3, 20]);
 
         // Create indices for 3-index gather
@@ -44,7 +43,11 @@ mod tests {
         let batch_stride = 64;
 
         let result = batch_gather_fused(weights, indices, &strides, batch_stride);
-        assert_eq!(result.dims()[0], batch_size, "Output batch size should match");
+        assert_eq!(
+            result.dims()[0],
+            batch_size,
+            "Output batch size should match"
+        );
     }
 
     #[test]
@@ -110,4 +113,3 @@ mod tests {
         assert_eq!(result.dims()[0], batch_size);
     }
 }
-

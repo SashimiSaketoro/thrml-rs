@@ -103,7 +103,7 @@ impl PathConfig {
     ///
     /// Use this when mixing with other CLI parsers
     pub fn from_args_relaxed() -> Self {
-        let args = PathArgs::try_parse().unwrap_or_else(|_| PathArgs {
+        let args = PathArgs::try_parse().unwrap_or(PathArgs {
             cache_dir: None,
             data_dir: None,
             output_dir: None,
@@ -186,7 +186,7 @@ impl PathConfig {
     ///
     /// Initializes with defaults on first call. Use `set_global` to customize.
     pub fn global() -> &'static PathConfig {
-        GLOBAL_CONFIG.get_or_init(|| PathConfig::from_args_relaxed())
+        GLOBAL_CONFIG.get_or_init(PathConfig::from_args_relaxed)
     }
 
     /// Set the global configuration
@@ -226,8 +226,7 @@ impl PathConfig {
     /// Load config file from path or default location
     fn load_config_file(path: Option<&Path>) -> PathConfigFile {
         let config_path = path.map(PathBuf::from).or_else(|| {
-            ProjectDirs::from("", "", "thrml")
-                .map(|dirs| dirs.config_dir().join("config.toml"))
+            ProjectDirs::from("", "", "thrml").map(|dirs| dirs.config_dir().join("config.toml"))
         });
 
         if let Some(path) = config_path {
@@ -330,11 +329,7 @@ impl PathConfigBuilder {
         let defaults = PathConfig::default_dirs();
 
         let (cache_default, data_default, output_default) = if let Some(base) = &self.base_dir {
-            (
-                base.join("cache"),
-                base.join("data"),
-                base.join("output"),
-            )
+            (base.join("cache"), base.join("data"), base.join("output"))
         } else {
             defaults
         };
@@ -378,9 +373,14 @@ mod tests {
             .base_dir("/Volumes/External/thrml")
             .build();
 
-        assert_eq!(config.cache_dir(), Path::new("/Volumes/External/thrml/cache"));
+        assert_eq!(
+            config.cache_dir(),
+            Path::new("/Volumes/External/thrml/cache")
+        );
         assert_eq!(config.data_dir(), Path::new("/Volumes/External/thrml/data"));
-        assert_eq!(config.output_dir(), Path::new("/Volumes/External/thrml/output"));
+        assert_eq!(
+            config.output_dir(),
+            Path::new("/Volumes/External/thrml/output")
+        );
     }
 }
-

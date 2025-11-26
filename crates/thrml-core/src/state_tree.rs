@@ -162,7 +162,7 @@ pub fn verify_block_state(
         } else {
             // Default: check that total size is compatible
             let total_size: usize = state_dims.iter().product();
-            if total_size % block_len != 0 {
+            if !total_size.is_multiple_of(block_len) {
                 return Err(format!(
                     "State size {} is not compatible with block length {}",
                     total_size, block_len
@@ -220,7 +220,7 @@ pub fn verify_block_state(
         if !expected_spec.shape.is_empty() {
             let expected_trailing_size: usize = expected_spec.shape.iter().product();
             let state_size: usize = state_dims.iter().product();
-            if state_size % expected_trailing_size != 0 {
+            if !state_size.is_multiple_of(expected_trailing_size) {
                 return Err(format!(
                     "State shape {:?} not compatible with expected spec shape {:?}",
                     state_dims, expected_spec.shape

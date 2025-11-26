@@ -1,3 +1,6 @@
+// CubeCL kernels use explicit assignment patterns for GPU compilation
+#![allow(clippy::assign_op_pattern)]
+
 //! CubeCL kernel definition for fused batch gather with linear indexing.
 //!
 //! This kernel gathers values from a weight tensor using multiple indices

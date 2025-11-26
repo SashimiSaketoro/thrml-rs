@@ -52,7 +52,12 @@ use thrml_samplers::schedule::SamplingSchedule;
 #[command(author, version, about = "Train an Ising model on MNIST digits")]
 struct TrainConfig {
     /// Number of training epochs
-    #[arg(long = "epochs", short = 'e', default_value = "1000", env = "THRML_EPOCHS")]
+    #[arg(
+        long = "epochs",
+        short = 'e',
+        default_value = "1000",
+        env = "THRML_EPOCHS"
+    )]
     n_epochs: usize,
 
     /// Batch size
@@ -398,11 +403,8 @@ fn evaluate(
 
                     // Predict: extract predicted label from hidden layer reconstruction
                     // For simplicity, use the actual label extraction from the clamped data
-                    let predicted = extract_label(
-                        &data_slice,
-                        config.target_classes.len(),
-                        config.label_spots,
-                    );
+                    let predicted =
+                        extract_label(&data_slice, config.target_classes.len(), config.label_spots);
 
                     if predicted == class_idx {
                         correct += 1;
@@ -470,9 +472,18 @@ fn main() {
     println!("  Grid size: {}×{}", config.side_len, config.side_len);
     println!("  Jumps: {:?}", config.jumps);
     println!("  Target classes: {:?}", config.target_classes);
-    println!("  Warmup (neg/pos): {}/{}", config.warmup_neg, config.warmup_pos);
-    println!("  Samples (neg/pos): {}/{}", config.samples_neg, config.samples_pos);
-    println!("  Steps (neg/pos): {}/{}", config.steps_neg, config.steps_pos);
+    println!(
+        "  Warmup (neg/pos): {}/{}",
+        config.warmup_neg, config.warmup_pos
+    );
+    println!(
+        "  Samples (neg/pos): {}/{}",
+        config.samples_neg, config.samples_pos
+    );
+    println!(
+        "  Steps (neg/pos): {}/{}",
+        config.steps_neg, config.steps_pos
+    );
     println!("  Eval every: {} epochs", config.eval_every);
     println!();
 
@@ -582,16 +593,10 @@ fn main() {
     let training_data_blocks = vec![visible_nodes.clone()];
 
     // Schedules
-    let schedule_negative = SamplingSchedule::new(
-        config.warmup_neg,
-        config.samples_neg,
-        config.steps_neg,
-    );
-    let schedule_positive = SamplingSchedule::new(
-        config.warmup_pos,
-        config.samples_pos,
-        config.steps_pos,
-    );
+    let schedule_negative =
+        SamplingSchedule::new(config.warmup_neg, config.samples_neg, config.steps_neg);
+    let schedule_positive =
+        SamplingSchedule::new(config.warmup_pos, config.samples_pos, config.steps_pos);
 
     // Create training spec ONCE before training (major optimization!)
     // The sampling programs only depend on graph structure, not weights

@@ -151,8 +151,7 @@ mod tests {
         use thrml_core::backend::{init_gpu_device, WgpuBackend};
 
         let device = init_gpu_device();
-        let logits: Tensor<WgpuBackend, 2> =
-            Tensor::from_data([[10.0f32, 0.0, 0.0]], &device); // Strong preference for category 0
+        let logits: Tensor<WgpuBackend, 2> = Tensor::from_data([[10.0f32, 0.0, 0.0]], &device); // Strong preference for category 0
 
         let hard = gumbel_softmax(logits, 0.1, true, &device);
         let hard_data: Vec<f32> = hard.into_data().to_vec().unwrap();
@@ -179,4 +178,3 @@ mod tests {
         assert!(schedule.at_step(100000) >= 0.1);
     }
 }
-

@@ -158,8 +158,7 @@ fn test_ising_energy_batched() {
 
     let biases: Tensor<WgpuBackend, 1> =
         Tensor::from_data(vec![0.1f32, 0.2, 0.3].as_slice(), &device);
-    let weights: Tensor<WgpuBackend, 1> =
-        Tensor::from_data(vec![0.5f32, -0.5].as_slice(), &device);
+    let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![0.5f32, -0.5].as_slice(), &device);
     let beta: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![1.0f32].as_slice(), &device);
 
     let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);
@@ -207,10 +206,8 @@ fn test_ising_energy_batched_vs_single() {
         (nodes[2].clone(), nodes[3].clone()),
     ];
 
-    let biases: Tensor<WgpuBackend, 1> =
-        Tensor::from_data(vec![0.0f32; 4].as_slice(), &device);
-    let weights: Tensor<WgpuBackend, 1> =
-        Tensor::from_data(vec![1.0f32; 3].as_slice(), &device);
+    let biases: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![0.0f32; 4].as_slice(), &device);
+    let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![1.0f32; 3].as_slice(), &device);
     let beta: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![1.0f32].as_slice(), &device);
 
     let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);

@@ -27,9 +27,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       
       - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal
+          rustup default ${{ matrix.rust }}
       
       - name: Cache cargo
         uses: actions/cache@v4

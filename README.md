@@ -83,11 +83,8 @@ thrml-observers = "0.1"
 
 ## Requirements
 
-- Rust nightly (1.89+) - required by Burn 0.19
+- Rust 1.89+ (stable) - required by Burn 0.19
 - GPU with Metal (macOS) or Vulkan (Linux/Windows) support
-
-> **Note**: This crate uses Rust nightly due to Burn framework requirements. 
-> A `rust-toolchain.toml` is included to automatically select the correct toolchain.
 
 ## Examples
 

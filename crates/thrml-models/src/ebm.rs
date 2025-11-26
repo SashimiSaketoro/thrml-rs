@@ -46,7 +46,7 @@ pub trait BatchedEBM {
     /// * `device` - Compute device
     ///
     /// # Returns
-    /// Energy for each state [batch_size]
+    /// Energy for each state `[batch_size]`
     fn energy_batched(
         &self,
         states: &Tensor<WgpuBackend, 2>,

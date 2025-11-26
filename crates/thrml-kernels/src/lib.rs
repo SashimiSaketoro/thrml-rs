@@ -8,9 +8,9 @@
 //!
 //! ## Available Kernels
 //!
-//! - [`gumbel_argmax`] - Fused Gumbel-max trick for categorical sampling
-//! - [`sigmoid_bernoulli`] - Fused sigmoid + Bernoulli for spin sampling
-//! - [`batch_gather`] - Fused multi-index weight gathering
+//! - `gumbel_argmax` - Fused Gumbel-max trick for categorical sampling
+//! - `sigmoid_bernoulli` - Fused sigmoid + Bernoulli for spin sampling
+//! - `batch_gather` - Fused multi-index weight gathering
 //!
 //! ## Usage
 //!
@@ -49,11 +49,11 @@ pub trait FusedKernelBackend: BurnBackend {
     /// Computes `uniform < sigmoid(2 * gamma) ? 1.0 : 0.0` in a single kernel.
     ///
     /// # Arguments
-    /// * `gamma` - Gibbs parameters [batch_size]
-    /// * `uniform` - Pre-generated uniform samples [batch_size]
+    /// * `gamma` - Gibbs parameters `[batch_size]`
+    /// * `uniform` - Pre-generated uniform samples `[batch_size]`
     ///
     /// # Returns
-    /// Bernoulli samples as floats (0.0 or 1.0) [batch_size]
+    /// Bernoulli samples as floats (0.0 or 1.0) `[batch_size]`
     fn sigmoid_bernoulli_fused(
         gamma: FloatTensor<Self>,
         uniform: FloatTensor<Self>,
@@ -69,7 +69,7 @@ pub trait FusedKernelBackend: BurnBackend {
     /// * `uniform` - Pre-generated uniform samples [batch_size, n_categories]
     ///
     /// # Returns
-    /// Category indices [batch_size] as integers
+    /// Category indices `[batch_size]` as integers
     fn gumbel_argmax_fused(
         logits: FloatTensor<Self>,
         uniform: FloatTensor<Self>,
@@ -87,7 +87,7 @@ pub trait FusedKernelBackend: BurnBackend {
     /// * `batch_stride` - Stride for the batch dimension
     ///
     /// # Returns
-    /// Gathered values [batch_size]
+    /// Gathered values `[batch_size]`
     fn batch_gather_fused(
         weights: FloatTensor<Self>,
         indices: IntTensor<Self>,

@@ -83,11 +83,11 @@ where
 /// on the default WgpuBackend.
 ///
 /// # Arguments
-/// * `gamma` - Gibbs parameter [n_nodes]
-/// * `uniform` - Pre-generated uniform samples [n_nodes]
+/// * `gamma` - Gibbs parameter `[n_nodes]`
+/// * `uniform` - Pre-generated uniform samples `[n_nodes]`
 ///
 /// # Returns
-/// Spin samples [n_nodes] as floats (0.0 or 1.0)
+/// Spin samples `[n_nodes]` as floats (0.0 or 1.0)
 pub fn sigmoid_bernoulli_fused(
     gamma: Tensor<WgpuBackend, 1>,
     uniform: Tensor<WgpuBackend, 1>,

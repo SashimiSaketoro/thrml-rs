@@ -41,7 +41,7 @@ use burn::tensor::{Int, Tensor};
 /// # Arguments
 /// * `weights_shape` - Shape of the original weights tensor
 /// * `indices` - The indices used in the forward pass [batch_size, n_indices]
-/// * `grad_output` - Gradient of the loss w.r.t. the output [batch_size]
+/// * `grad_output` - Gradient of the loss w.r.t. the output `[batch_size]`
 /// * `strides` - Stride values for each index dimension
 /// * `batch_stride` - Stride for the batch dimension
 /// * `device` - Device to create tensors on

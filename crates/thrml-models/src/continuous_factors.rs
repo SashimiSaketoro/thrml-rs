@@ -24,7 +24,7 @@ use crate::DiscreteEBMInteraction;
 ///
 /// In a Gaussian model, this corresponds to the mean parameter.
 pub struct LinearFactor {
-    /// Linear weights with shape [n_nodes]
+    /// Linear weights with shape `[n_nodes]`
     weights: Tensor<WgpuBackend, 1>,
     /// Block of continuous nodes
     block: Block,
@@ -37,7 +37,7 @@ impl LinearFactor {
     ///
     /// # Arguments
     ///
-    /// * `weights` - Weight tensor with shape [n_nodes]
+    /// * `weights` - Weight tensor with shape `[n_nodes]`
     /// * `block` - Block of continuous nodes this factor applies to
     pub fn new(weights: Tensor<WgpuBackend, 1>, block: Block) -> Self {
         let node_groups = vec![block.clone()];
@@ -104,7 +104,7 @@ impl AbstractFactor for LinearFactor {
 ///
 /// The `inverse_weights` represent 1/sigma^2 (precision/inverse variance).
 pub struct QuadraticFactor {
-    /// Inverse variance weights with shape [n_nodes]
+    /// Inverse variance weights with shape `[n_nodes]`
     /// These are the diagonal of the precision matrix.
     inverse_weights: Tensor<WgpuBackend, 1>,
     /// Block of continuous nodes
@@ -118,7 +118,7 @@ impl QuadraticFactor {
     ///
     /// # Arguments
     ///
-    /// * `inverse_weights` - Inverse variance tensor with shape [n_nodes]
+    /// * `inverse_weights` - Inverse variance tensor with shape `[n_nodes]`
     /// * `block` - Block of continuous nodes this factor applies to
     pub fn new(inverse_weights: Tensor<WgpuBackend, 1>, block: Block) -> Self {
         let node_groups = vec![block.clone()];
@@ -183,7 +183,7 @@ impl AbstractFactor for QuadraticFactor {
 ///
 /// E(x) = -sum_{i,j} w_{ij} * x_i * x_j
 pub struct CouplingFactor {
-    /// Coupling weights with shape [n_edges]
+    /// Coupling weights with shape `[n_edges]`
     weights: Tensor<WgpuBackend, 1>,
     /// Block of source nodes (x_i)
     block_i: Block,
@@ -198,7 +198,7 @@ impl CouplingFactor {
     ///
     /// # Arguments
     ///
-    /// * `weights` - Coupling weights with shape [n_edges]
+    /// * `weights` - Coupling weights with shape `[n_edges]`
     /// * `block_i` - Block of source continuous nodes
     /// * `block_j` - Block of target continuous nodes
     ///
@@ -314,11 +314,11 @@ impl AbstractFactor for CouplingFactor {
 ///
 /// # Arguments
 ///
-/// * `precision_diag` - Diagonal elements of the precision matrix [n_nodes]
-/// * `precision_off_diag` - Off-diagonal precision values [n_edges]
-/// * `edge_i` - Source node indices for each edge [n_edges]
-/// * `edge_j` - Target node indices for each edge [n_edges]
-/// * `bias` - Bias vector (mean contribution) [n_nodes]
+/// * `precision_diag` - Diagonal elements of the precision matrix `[n_nodes]`
+/// * `precision_off_diag` - Off-diagonal precision values `[n_edges]`
+/// * `edge_i` - Source node indices for each edge `[n_edges]`
+/// * `edge_j` - Target node indices for each edge `[n_edges]`
+/// * `bias` - Bias vector (mean contribution) `[n_nodes]`
 /// * `block` - Block of continuous nodes
 ///
 /// # Returns

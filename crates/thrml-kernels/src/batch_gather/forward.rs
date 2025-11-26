@@ -28,7 +28,7 @@ use thrml_core::backend::WgpuBackend;
 /// * `batch_stride` - Stride for the batch dimension
 ///
 /// # Returns
-/// Gathered values [batch_size]
+/// Gathered values `[batch_size]`
 pub fn launch_batch_gather<R, F, I, BT>(
     weights: FloatTensor<CubeBackend<R, F, I, BT>>,
     indices: IntTensor<CubeBackend<R, F, I, BT>>,
@@ -239,7 +239,7 @@ fn create_strides_tensor<R: CubeRuntime, I: IntElement>(
 /// * `batch_stride` - Stride for the batch dimension
 ///
 /// # Returns
-/// Gathered values [batch_size]
+/// Gathered values `[batch_size]`
 pub fn batch_gather_fused(
     weights: Tensor<WgpuBackend, 3>,
     indices: Tensor<WgpuBackend, 2, Int>,

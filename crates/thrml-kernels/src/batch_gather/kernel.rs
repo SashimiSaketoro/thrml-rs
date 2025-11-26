@@ -208,7 +208,7 @@ pub fn batch_gather_kernel_dynamic<F: Float, I: Int>(
 /// # Arguments
 /// * `weights` - Flattened weight tensor
 /// * `indices` - Flattened index tensor [batch_size * n_indices]
-/// * `output` - Output tensor [batch_size]
+/// * `output` - Output tensor `[batch_size]`
 /// * `stride0` - Stride for first index dimension (comptime)
 /// * `stride1` - Stride for second index dimension (comptime)
 /// * `batch_stride` - Stride for batch dimension (comptime)

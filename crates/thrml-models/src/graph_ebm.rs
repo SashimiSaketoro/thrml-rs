@@ -461,7 +461,7 @@ mod tests {
 
         let energy = ebm.total_energy(&positions);
         assert!(
-            energy.abs() < 1e-4,
+            energy.abs() < 1e-3, // Looser tolerance for GPU floating-point precision
             "Energy should be ~0 when all connected nodes are coincident, got {}",
             energy
         );

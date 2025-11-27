@@ -159,6 +159,8 @@ pub enum ComputeBackend {
     Adaptive,
 }
 
+// This impl is not derivable because it has conditional logic for macOS vs other platforms
+#[allow(clippy::derivable_impls)]
 impl Default for ComputeBackend {
     fn default() -> Self {
         // Default to hybrid for Apple Silicon

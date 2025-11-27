@@ -24,20 +24,16 @@ pub fn batch_gather_3d_gather(
     indices0: Tensor<WgpuBackend, 1, burn::tensor::Int>,
     indices1: Tensor<WgpuBackend, 1, burn::tensor::Int>,
 ) -> Tensor<WgpuBackend, 1> {
-    let dims = weights.dims();
-    let batch_size = dims[0];
-    let dim2_size = dims[2];
-    let device = weights.device();
-
-    // For gather, indices need to match input shape except at gather dimension
-    // For [batch, dim1, dim2] gathering along dim1, indices need shape [batch, 1, dim2]
-    // Expand indices0: [batch] -> [batch, 1, dim2]
-    let indices0_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> =
-        indices0.clone().unsqueeze_dim::<2>(1); // [batch] -> [batch, 1]
-                                                // Broadcast to [batch, 1, dim2]
-    let indices0_broadcasted = indices0_2d.clone().unsqueeze_dim::<3>(2); // [batch, 1] -> [batch, 1, 1]
-                                                                          // Actually, gather needs the full shape - let's use a different approach
-                                                                          // Use linear indexing instead for 3D as it's simpler and works
+    // Note: gather-based approach was explored but linear indexing is simpler.
+    // The commented variables below show the exploration:
+    // let dims = weights.dims();
+    // let batch_size = dims[0];
+    // let dim2_size = dims[2];
+    // let device = weights.device();
+    // let indices0_2d = indices0.clone().unsqueeze_dim::<2>(1);
+    // let indices0_broadcasted = indices0_2d.clone().unsqueeze_dim::<3>(2);
+    //
+    // Use linear indexing instead for 3D as it's simpler and works
     batch_gather_3d_linear(weights, indices0, indices1)
 }
 

@@ -1,11 +1,25 @@
 # thrml-sphere
 
-[![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
+> ⚠️ **Experimental**: This crate is maintained on the `sphere` branch and is not part of the main thrml-rs release.
+
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Branch](https://img.shields.io/badge/branch-sphere-green.svg)](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere)
 
 Hyperspherical embedding optimization and ROOTS indexing for the THRML framework.
 
-## Overview
+## Installation
+
+```toml
+# Add as git dependency (sphere branch)
+[dependencies]
+thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+```
+
+Or clone the branch directly:
+```bash
+git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
+```
 
 `thrml-sphere` provides Langevin dynamics-based sphere optimization for organizing BLT (Byte Latent Transformer) embeddings on a hyperspherical manifold using the "water-filling" algorithm.
 

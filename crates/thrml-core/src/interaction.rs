@@ -28,11 +28,12 @@ pub enum InteractionData {
     ///
     /// Used by thrml-sphere for placing embeddings on a hypersphere.
     /// Contains precomputed similarity matrix and ideal radii.
+    /// Fields are boxed to reduce enum size variance.
     Sphere {
         /// Ideal radii from prominence ranking \[N\].
-        ideal_radii: Tensor<WgpuBackend, 1>,
+        ideal_radii: Box<Tensor<WgpuBackend, 1>>,
         /// Cosine similarity matrix \[N, N\].
-        similarity: Tensor<WgpuBackend, 2>,
+        similarity: Box<Tensor<WgpuBackend, 2>>,
         /// Gaussian interaction radius for lateral forces.
         interaction_radius: f32,
     },
@@ -84,7 +85,7 @@ impl InteractionData {
                 ideal_radii,
                 similarity,
                 interaction_radius,
-            } => Some((ideal_radii, similarity, *interaction_radius)),
+            } => Some((ideal_radii.as_ref(), similarity.as_ref(), *interaction_radius)),
             _ => None,
         }
     }

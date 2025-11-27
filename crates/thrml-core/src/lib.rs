@@ -35,11 +35,18 @@ pub mod block;
 pub mod blockspec;
 pub mod compute;
 pub mod config;
-pub mod distance;
-pub mod interaction;
 pub mod node;
+
+// GPU-dependent modules (require gpu feature)
+#[cfg(feature = "gpu")]
+pub mod distance;
+#[cfg(feature = "gpu")]
+pub mod interaction;
+#[cfg(feature = "gpu")]
 pub mod similarity;
+#[cfg(feature = "gpu")]
 pub mod spherical;
+#[cfg(feature = "gpu")]
 pub mod state_tree;
 
 pub use backend::*;
@@ -47,9 +54,15 @@ pub use block::*;
 pub use blockspec::*;
 pub use compute::*;
 pub use config::*;
-pub use distance::*;
-pub use interaction::*;
 pub use node::*;
+
+#[cfg(feature = "gpu")]
+pub use distance::*;
+#[cfg(feature = "gpu")]
+pub use interaction::*;
+#[cfg(feature = "gpu")]
 pub use similarity::*;
+#[cfg(feature = "gpu")]
 pub use spherical::*;
+#[cfg(feature = "gpu")]
 pub use state_tree::*;

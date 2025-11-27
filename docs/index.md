@@ -9,10 +9,12 @@
 ## Features
 
 - **GPU Acceleration** via WGPU (Metal on macOS, Vulkan on Linux/Windows)
+- **Hybrid Compute Backend** - CPU (f64) / GPU (f32) routing for Apple Silicon unified memory
 - **Block Gibbs Sampling** for efficient PGM inference
 - **Hyperspherical Navigation** - Multi-cone EBM navigation with ROOTS indexing
 - **Contrastive Divergence Training** - SOTA techniques including hard negative mining, PCD, and curriculum learning
 - **Discrete EBM Utilities** (Ising/Boltzmann machines)
+- **Graph-based EBMs** - SpringEBM, NodeBiasEBM with lattice construction utilities
 - **Gaussian PGMs** with custom factors
 - **Langevin Dynamics** for continuous optimization
 - **Type-Safe** Rust implementation with zero Python dependencies

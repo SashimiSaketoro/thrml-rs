@@ -11,7 +11,31 @@
 //! - [`InteractionGroup`]: Defines interactions between node groups
 //! - [`InteractionData`]: Tensor, Linear, Quadratic, or Sphere interaction parameters
 //!
-//! ## GPU Utilities
+//! ## Hybrid Compute Backend
+//!
+//! The [`compute`] module provides CPU/GPU routing for precision-sensitive operations,
+//! optimized for Apple Silicon's unified memory architecture:
+//!
+//! - [`ComputeBackend`]: Backend selection (CPU, GPU, Hybrid, Adaptive)
+//! - [`OpType`]: Operation classification for routing decisions
+//! - [`PrecisionMode`]: Precision mode selection (GpuFast, CpuPrecise, Adaptive)
+//! - [`HybridConfig`]: Combined backend + precision configuration
+//!
+//! ```rust,ignore
+//! use thrml_core::{ComputeBackend, OpType};
+//!
+//! // Auto-detect Apple Silicon unified memory
+//! let backend = ComputeBackend::apple_silicon();
+//!
+//! // Route precision-sensitive ops to CPU f64
+//! if backend.use_cpu(OpType::IsingSampling, None) {
+//!     // Use CPU path with f64 precision
+//! } else {
+//!     // Use GPU path with f32 performance
+//! }
+//! ```
+//!
+//! ## GPU Utilities (requires `gpu` feature)
 //!
 //! - [`distance`]: Pairwise distance and kernel computations
 //! - [`similarity`]: Cosine similarity and sparse representations

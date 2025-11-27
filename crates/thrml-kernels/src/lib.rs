@@ -24,8 +24,17 @@
 //! 2. Implement for `CubeBackend` with actual GPU kernels
 //! 3. Implement for `Autodiff<B>` with proper backward passes
 //! 4. Provide reference implementations as fallback
+//!
+//! ## Hybrid Compute Backend
+//!
+//! Re-exports from `thrml-core` for CPU/GPU precision routing.
+//! The fused kernels are GPU-only; use reference implementations
+//! when `ComputeBackend::use_cpu()` returns true.
 
 #![cfg_attr(not(feature = "gpu"), allow(unused))]
+
+// Re-export compute types from thrml-core for precision routing
+pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};
 
 use burn::tensor::backend::Backend as BurnBackend;
 use burn::tensor::ops::{FloatTensor, IntTensor};

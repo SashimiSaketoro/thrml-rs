@@ -249,7 +249,6 @@ mod tests {
     #[test]
     fn test_zero_temperature_is_deterministic() {
         let device = init_gpu_device();
-        let n = 5;
 
         let state: Tensor<WgpuBackend, 1> =
             Tensor::from_data([1.0f32, 2.0, 3.0, 4.0, 5.0].as_slice(), &device);

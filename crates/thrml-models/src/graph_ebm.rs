@@ -306,7 +306,6 @@ impl NodeBiasEBM {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::tensor::Distribution;
     use thrml_core::backend::init_gpu_device;
 
     #[test]

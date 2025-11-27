@@ -111,6 +111,10 @@ impl AbstractConditionalSampler for GaussianSampler {
                     // Tensor interactions are for discrete EBMs, not Gaussian
                     // Skip for GaussianSampler
                 }
+                InteractionData::Sphere { .. } => {
+                    // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                    // Skip for GaussianSampler
+                }
             }
         }
 

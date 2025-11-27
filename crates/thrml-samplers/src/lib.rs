@@ -9,6 +9,7 @@
 //! - **Softmax Sampler**: For categorical variables using Gumbel-max trick via [`SoftmaxConditional`]
 //! - **Spin Gibbs Sampler**: Specialized for Ising-type models via [`SpinGibbsConditional`]
 //! - **Gaussian Sampler**: For continuous variables in Gaussian PGMs via [`GaussianSampler`]
+//! - **Langevin Sampler**: Overdamped Langevin dynamics for continuous EBMs via [`LangevinConfig`]
 //!
 //! ## RNG Key System
 //!
@@ -36,6 +37,7 @@
 
 pub mod bernoulli;
 pub mod gaussian;
+pub mod langevin;
 pub mod program;
 pub mod rng;
 pub mod sampler;
@@ -46,6 +48,7 @@ pub mod spin_gibbs;
 
 pub use bernoulli::*;
 pub use gaussian::*;
+pub use langevin::*;
 pub use program::*;
 pub use rng::*;
 pub use sampler::*;

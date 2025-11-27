@@ -192,6 +192,10 @@ impl SoftmaxConditional {
                     // Linear and Quadratic interactions are for continuous variables
                     // Skip for SoftmaxConditional which is for categorical variables
                 }
+                InteractionData::Sphere { .. } => {
+                    // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                    // Skip for SoftmaxConditional
+                }
             }
         }
 
@@ -369,6 +373,10 @@ impl CategoricalGibbsConditional {
                 InteractionData::Linear { .. } | InteractionData::Quadratic { .. } => {
                     // Linear and Quadratic interactions are for continuous variables
                     // Skip for CategoricalGibbsConditional which is for categorical variables
+                }
+                InteractionData::Sphere { .. } => {
+                    // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                    // Skip for CategoricalGibbsConditional
                 }
             }
         }

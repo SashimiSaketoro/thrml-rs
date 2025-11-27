@@ -214,6 +214,17 @@ pub fn verify_block_state(
                     ));
                 }
             }
+            crate::node::NodeType::Spherical { .. } => {
+                // Spherical nodes store (r, theta, phi) as F32
+                if state_dtype != burn::tensor::DType::F32
+                    && state_dtype != burn::tensor::DType::F64
+                {
+                    return Err(format!(
+                        "Spherical block has incompatible dtype {:?}, expected F32 or F64",
+                        state_dtype
+                    ));
+                }
+            }
         }
 
         // Check against expected spec shape if provided

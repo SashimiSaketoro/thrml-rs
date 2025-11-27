@@ -32,6 +32,23 @@
 //! - [`QuadraticFactor`]: Quadratic self-interaction `w * x^2`
 //! - [`CouplingFactor`]: Pairwise coupling `w * x_i * x_j`
 //!
+//! ## Graph-based Models
+//!
+//! Energy-based models using graph connectivity:
+//!
+//! - [`GraphSidecar`]: Graph structure with edges and node attributes
+//! - [`SpringEBM`]: Spring-like forces between connected nodes
+//! - [`NodeBiasEBM`]: Weighted node bias energy
+//!
+//! ## Graph Construction Utilities
+//!
+//! Utilities for building common graph topologies:
+//!
+//! - [`make_lattice_graph`]: 2D lattice with beyond-nearest-neighbor connections
+//! - [`make_nearest_neighbor_lattice`]: Simple 4-connected 2D grid
+//!
+//! Both support torus (periodic) boundaries and two-color blocking for block Gibbs sampling.
+//!
 //! ## Training Utilities
 //!
 //! - [`ising::estimate_moments`]: Estimate first/second moments via sampling
@@ -44,10 +61,14 @@ pub mod continuous_factors;
 pub mod discrete_ebm;
 pub mod ebm;
 pub mod factor;
+pub mod graph_ebm;
+pub mod graph_utils;
 pub mod ising;
 
 pub use continuous_factors::*;
 pub use discrete_ebm::*;
 pub use ebm::*;
 pub use factor::*;
+pub use graph_ebm::*;
+pub use graph_utils::*;
 pub use ising::*;

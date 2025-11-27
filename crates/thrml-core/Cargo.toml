@@ -21,6 +21,7 @@ burn-cuda = { workspace = true, optional = true }
 burn-ndarray = { workspace = true, optional = true }
 burn-cubecl = { version = "0.19", default-features = false, optional = true }
 indexmap = { workspace = true }
+ordered-float = { version = "4.2", features = ["serde"] }
 serde = { workspace = true }
 toml = "0.8"
 once_cell = { workspace = true }

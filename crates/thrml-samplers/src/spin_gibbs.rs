@@ -178,6 +178,10 @@ impl SpinGibbsConditional {
                     // Quadratic interactions are for continuous variables, not spin
                     // Skip for SpinGibbsConditional
                 }
+                InteractionData::Sphere { .. } => {
+                    // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                    // Skip for SpinGibbsConditional
+                }
             }
         }
 

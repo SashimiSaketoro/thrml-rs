@@ -229,6 +229,10 @@ pub fn sample_and_compare_distribution<E: AbstractEBM>(
                     // Continuous nodes are not supported in discrete EBM tests
                     panic!("Continuous nodes not supported in discrete EBM tests")
                 }
+                NodeType::Spherical { .. } => {
+                    // Spherical nodes are not supported in discrete EBM tests
+                    panic!("Spherical nodes not supported in discrete EBM tests")
+                }
             }
         }
     }

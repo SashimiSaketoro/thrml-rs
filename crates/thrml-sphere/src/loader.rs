@@ -95,8 +95,7 @@ pub fn load_from_safetensors(
     config: SphereConfig,
     device: &burn::backend::wgpu::WgpuDevice,
 ) -> Result<SphereEBM> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read {:?}", path))?;
+    let bytes = std::fs::read(path).with_context(|| format!("Failed to read {:?}", path))?;
     let tensors = SafeTensors::deserialize(&bytes)
         .with_context(|| format!("Failed to deserialize SafeTensors from {:?}", path))?;
 
@@ -104,15 +103,15 @@ pub fn load_from_safetensors(
     let emb_view = tensors
         .tensor("embeddings")
         .context("SafeTensors file missing 'embeddings' tensor")?;
-    let embeddings = tensor_to_burn_2d(&emb_view, device)
-        .context("Failed to convert embeddings tensor")?;
+    let embeddings =
+        tensor_to_burn_2d(&emb_view, device).context("Failed to convert embeddings tensor")?;
 
     // Load prominence [N]
     let prom_view = tensors
         .tensor("prominence")
         .context("SafeTensors file missing 'prominence' tensor")?;
-    let prominence = tensor_to_burn_1d(&prom_view, device)
-        .context("Failed to convert prominence tensor")?;
+    let prominence =
+        tensor_to_burn_1d(&prom_view, device).context("Failed to convert prominence tensor")?;
 
     // Load entropies (optional)
     let entropies = tensors
@@ -122,7 +121,9 @@ pub fn load_from_safetensors(
         .transpose()
         .context("Failed to convert entropies tensor")?;
 
-    Ok(SphereEBM::new(embeddings, prominence, entropies, config, device))
+    Ok(SphereEBM::new(
+        embeddings, prominence, entropies, config, device,
+    ))
 }
 
 /// Loads only the embeddings tensor from a SafeTensors file.
@@ -148,7 +149,7 @@ pub fn load_embeddings(
 ) -> Result<Tensor<WgpuBackend, 2>> {
     let bytes = std::fs::read(path)?;
     let tensors = SafeTensors::deserialize(&bytes)?;
-    
+
     let view = tensors
         .tensor("embeddings")
         .context("Missing 'embeddings' tensor")?;
@@ -178,7 +179,7 @@ pub fn load_prominence(
 ) -> Result<Tensor<WgpuBackend, 1>> {
     let bytes = std::fs::read(path)?;
     let tensors = SafeTensors::deserialize(&bytes)?;
-    
+
     let view = tensors
         .tensor("prominence")
         .context("Missing 'prominence' tensor")?;
@@ -201,7 +202,7 @@ fn tensor_to_burn_1d(
 
     let data = view.data();
     let floats: &[f32] = bytemuck::cast_slice(data);
-    
+
     match shape.len() {
         1 => {
             // Unbatched [N]
@@ -214,7 +215,10 @@ fn tensor_to_burn_1d(
             Ok(tensor_1d.reshape([n as i32]))
         }
         _ => {
-            anyhow::bail!("Expected 1D tensor [N] or batched [1, N], got shape {:?}", shape)
+            anyhow::bail!(
+                "Expected 1D tensor [N] or batched [1, N], got shape {:?}",
+                shape
+            )
         }
     }
 }
@@ -235,7 +239,7 @@ fn tensor_to_burn_2d(
 
     let data = view.data();
     let floats: &[f32] = bytemuck::cast_slice(data);
-    
+
     match shape.len() {
         2 => {
             // Unbatched [N, D]
@@ -250,7 +254,10 @@ fn tensor_to_burn_2d(
             Ok(tensor_1d.reshape([n as i32, d as i32]))
         }
         _ => {
-            anyhow::bail!("Expected 2D tensor [N, D] or batched [1, N, D], got shape {:?}", shape)
+            anyhow::bail!(
+                "Expected 2D tensor [N, D] or batched [1, N, D], got shape {:?}",
+                shape
+            )
         }
     }
 }
@@ -289,8 +296,7 @@ fn tensor_to_burn_2d(
 /// println!("Loaded {} patches", patch_bytes.len());
 /// ```
 pub fn load_patch_bytes(path: &Path) -> Result<Vec<Vec<u8>>> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("Failed to read {:?}", path))?;
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {:?}", path))?;
     let tensors = SafeTensors::deserialize(&data)
         .with_context(|| format!("Failed to deserialize SafeTensors from {:?}", path))?;
 
@@ -324,7 +330,9 @@ pub fn load_patch_bytes(path: &Path) -> Result<Vec<Vec<u8>>> {
         if offset + len > all_bytes.len() {
             anyhow::bail!(
                 "Patch at offset {} with length {} exceeds total bytes {}",
-                offset, len, all_bytes.len()
+                offset,
+                len,
+                all_bytes.len()
             );
         }
         patches.push(all_bytes[offset..offset + len].to_vec());
@@ -395,8 +403,7 @@ pub fn load_blt_safetensors(
     config: SphereConfig,
     device: &burn::backend::wgpu::WgpuDevice,
 ) -> Result<(SphereEBM, Vec<Vec<u8>>)> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("Failed to read {:?}", path))?;
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {:?}", path))?;
     let tensors = SafeTensors::deserialize(&data)
         .with_context(|| format!("Failed to deserialize SafeTensors from {:?}", path))?;
 
@@ -404,15 +411,15 @@ pub fn load_blt_safetensors(
     let emb_view = tensors
         .tensor("embeddings")
         .context("SafeTensors file missing 'embeddings' tensor (is this blt_patches_v3 format?)")?;
-    let embeddings = tensor_to_burn_2d(&emb_view, device)
-        .context("Failed to convert embeddings tensor")?;
+    let embeddings =
+        tensor_to_burn_2d(&emb_view, device).context("Failed to convert embeddings tensor")?;
 
     // Load prominence [N]
     let prom_view = tensors
         .tensor("prominence")
         .context("SafeTensors file missing 'prominence' tensor")?;
-    let prominence = tensor_to_burn_1d(&prom_view, device)
-        .context("Failed to convert prominence tensor")?;
+    let prominence =
+        tensor_to_burn_1d(&prom_view, device).context("Failed to convert prominence tensor")?;
 
     // Load patch entropies (optional, prefer patch_entropies over per-byte entropies)
     let entropies = tensors
@@ -455,7 +462,9 @@ pub fn load_blt_safetensors(
         if offset + len > all_bytes.len() {
             anyhow::bail!(
                 "Patch at offset {} with length {} exceeds total bytes {}",
-                offset, len, all_bytes.len()
+                offset,
+                len,
+                all_bytes.len()
             );
         }
         patch_bytes.push(all_bytes[offset..offset + len].to_vec());
@@ -467,7 +476,8 @@ pub fn load_blt_safetensors(
     if patch_bytes.len() != n_patches {
         anyhow::bail!(
             "Mismatch: {} patches from embeddings but {} from patch_lengths",
-            n_patches, patch_bytes.len()
+            n_patches,
+            patch_bytes.len()
         );
     }
 
@@ -501,27 +511,38 @@ pub fn is_blt_v3_format(path: &Path) -> Result<bool> {
 /// # Errors
 ///
 /// Returns an error if the file cannot be written.
-pub fn save_coords_npz(
-    coords: &thrml_core::SphericalCoords,
-    path: &Path,
-) -> Result<()> {
+pub fn save_coords_npz(coords: &thrml_core::SphericalCoords, path: &Path) -> Result<()> {
     use ndarray::{Array1, Array2};
     use ndarray_npy::NpzWriter;
     use std::fs::File;
 
     let n = coords.len();
-    
+
     // Convert tensors to ndarray
     // Note: to_vec() returns Result<Vec<E>, DataError>, using expect for simplicity
-    let r_data: Vec<f32> = coords.r.clone().into_data().to_vec()
+    let r_data: Vec<f32> = coords
+        .r
+        .clone()
+        .into_data()
+        .to_vec()
         .expect("Failed to convert r tensor to vec");
-    let theta_data: Vec<f32> = coords.theta.clone().into_data().to_vec()
+    let theta_data: Vec<f32> = coords
+        .theta
+        .clone()
+        .into_data()
+        .to_vec()
         .expect("Failed to convert theta tensor to vec");
-    let phi_data: Vec<f32> = coords.phi.clone().into_data().to_vec()
+    let phi_data: Vec<f32> = coords
+        .phi
+        .clone()
+        .into_data()
+        .to_vec()
         .expect("Failed to convert phi tensor to vec");
-    
+
     let cart = coords.to_cartesian();
-    let cart_data: Vec<f32> = cart.into_data().to_vec()
+    let cart_data: Vec<f32> = cart
+        .into_data()
+        .to_vec()
         .expect("Failed to convert cartesian tensor to vec");
 
     let r = Array1::from_vec(r_data);
@@ -545,8 +566,8 @@ pub fn save_coords_npz(
 mod tests {
     use super::*;
     use burn::tensor::Distribution;
-    use thrml_core::backend::init_gpu_device;
     use std::collections::HashMap;
+    use thrml_core::backend::init_gpu_device;
 
     #[test]
     fn test_tensor_conversion_roundtrip() {
@@ -555,16 +576,13 @@ mod tests {
         let d = 5;
 
         // Create test data
-        let test_data: Vec<f32> = (0..n*d).map(|i| i as f32).collect();
-        
+        let test_data: Vec<f32> = (0..n * d).map(|i| i as f32).collect();
+
         // Create safetensors
         let shape = vec![n, d];
-        let bytes: Vec<u8> = test_data.iter()
-            .flat_map(|&f| f.to_le_bytes())
-            .collect();
-        
+        let bytes: Vec<u8> = test_data.iter().flat_map(|&f| f.to_le_bytes()).collect();
+
         // This test verifies the conversion logic works correctly
         // In practice we'd create a real safetensors file
     }
 }
-

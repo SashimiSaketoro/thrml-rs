@@ -7,8 +7,8 @@
 //! - [`cosine_similarity_topk`]: Top-k neighbor similarity
 //! - [`cosine_similarity_threshold`]: Threshold-based sparse similarity
 
-use burn::tensor::Tensor;
 use crate::backend::WgpuBackend;
+use burn::tensor::Tensor;
 
 /// Compute cosine similarity matrix on GPU.
 ///
@@ -42,7 +42,7 @@ pub fn cosine_similarity_matrix(
     let norms = embeddings
         .clone()
         .powf_scalar(2.0)
-        .sum_dim(1)  // [N, 1]
+        .sum_dim(1) // [N, 1]
         .sqrt()
         .clamp(1e-8, f32::MAX);
 
@@ -84,39 +84,36 @@ impl SparseSimilarity {
             k,
         }
     }
-    
+
     /// Convert to dense tensor.
     ///
     /// Returns [N, N] tensor where entry [i, j] = similarity if j is in top-k
     /// neighbors of i, else 0.
-    pub fn to_dense(
-        &self,
-        device: &burn::backend::wgpu::WgpuDevice,
-    ) -> Tensor<WgpuBackend, 2> {
+    pub fn to_dense(&self, device: &burn::backend::wgpu::WgpuDevice) -> Tensor<WgpuBackend, 2> {
         let n = self.n_points;
         let mut data = vec![0.0f32; n * n];
-        
+
         for (i, (indices, values)) in self.indices.iter().zip(self.values.iter()).enumerate() {
             for (&j, &v) in indices.iter().zip(values.iter()) {
                 data[i * n + j] = v;
             }
         }
-        
+
         // Create 1D tensor and reshape to 2D
         let tensor_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(data.as_slice(), device);
         tensor_1d.reshape([n as i32, n as i32])
     }
-    
+
     /// Get neighbors for a specific point.
     pub fn neighbors(&self, idx: usize) -> (&[usize], &[f32]) {
         (&self.indices[idx], &self.values[idx])
     }
-    
+
     /// Total number of stored entries.
     pub fn nnz(&self) -> usize {
         self.indices.iter().map(|v| v.len()).sum()
     }
-    
+
     /// Memory usage in bytes (approximate).
     pub fn memory_bytes(&self) -> usize {
         // Each entry: 8 bytes (usize) + 4 bytes (f32) = 12 bytes
@@ -148,31 +145,31 @@ pub fn cosine_similarity_topk(
 ) -> SparseSimilarity {
     let n = embeddings.dims()[0];
     let k = k.min(n - 1); // Can't have more neighbors than n-1
-    
+
     // Compute full similarity matrix
     let sim = cosine_similarity_matrix(embeddings, device);
     let sim_data: Vec<f32> = sim.into_data().to_vec().expect("sim to vec");
-    
+
     // Extract top-k for each row
     let mut sparse = SparseSimilarity::new(n, k);
-    
+
     for i in 0..n {
         // Get row i similarities (excluding self)
         let mut row_sims: Vec<(usize, f32)> = (0..n)
             .filter(|&j| j != i)
             .map(|j| (j, sim_data[i * n + j]))
             .collect();
-        
+
         // Sort by similarity descending
         row_sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top k
         for (j, v) in row_sims.into_iter().take(k) {
             sparse.indices[i].push(j);
             sparse.values[i].push(v);
         }
     }
-    
+
     sparse
 }
 
@@ -194,15 +191,15 @@ pub fn cosine_similarity_threshold(
     device: &burn::backend::wgpu::WgpuDevice,
 ) -> SparseSimilarity {
     let n = embeddings.dims()[0];
-    
+
     // Compute full similarity matrix
     let sim = cosine_similarity_matrix(embeddings, device);
     let sim_data: Vec<f32> = sim.into_data().to_vec().expect("sim to vec");
-    
+
     // Count max neighbors (for allocation)
     let mut sparse = SparseSimilarity::new(n, n);
     sparse.k = 0;
-    
+
     for i in 0..n {
         for j in 0..n {
             if i != j {
@@ -215,47 +212,51 @@ pub fn cosine_similarity_threshold(
         }
         sparse.k = sparse.k.max(sparse.indices[i].len());
     }
-    
+
     sparse
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::tensor::Distribution;
     use crate::backend::init_gpu_device;
+    use burn::tensor::Distribution;
 
     #[test]
     fn test_cosine_similarity_diagonal_zero() {
         let device = init_gpu_device();
         let n = 5;
         let d = 10;
-        
-        let embeddings: Tensor<WgpuBackend, 2> = 
+
+        let embeddings: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let sim = cosine_similarity_matrix(&embeddings, &device);
         let sim_data: Vec<f32> = sim.into_data().to_vec().expect("sim to vec");
-        
+
         // Check diagonal is zero
         for i in 0..n {
             let diag_val = sim_data[i * n + i];
-            assert!(diag_val.abs() < 1e-6, "Diagonal should be zero, got {}", diag_val);
+            assert!(
+                diag_val.abs() < 1e-6,
+                "Diagonal should be zero, got {}",
+                diag_val
+            );
         }
     }
-    
+
     #[test]
     fn test_cosine_similarity_symmetric() {
         let device = init_gpu_device();
         let n = 5;
         let d = 10;
-        
-        let embeddings: Tensor<WgpuBackend, 2> = 
+
+        let embeddings: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let sim = cosine_similarity_matrix(&embeddings, &device);
         let sim_data: Vec<f32> = sim.into_data().to_vec().expect("sim to vec");
-        
+
         // Check symmetry
         for i in 0..n {
             for j in 0..n {
@@ -265,19 +266,19 @@ mod tests {
             }
         }
     }
-    
+
     #[test]
     fn test_sparse_similarity_topk() {
         let device = init_gpu_device();
         let n = 10;
         let d = 5;
         let k = 3;
-        
-        let embeddings: Tensor<WgpuBackend, 2> = 
+
+        let embeddings: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let sparse = cosine_similarity_topk(&embeddings, k, &device);
-        
+
         // Each point should have exactly k neighbors
         for i in 0..n {
             assert_eq!(sparse.indices[i].len(), k, "Should have k neighbors");
@@ -285,4 +286,3 @@ mod tests {
         }
     }
 }
-

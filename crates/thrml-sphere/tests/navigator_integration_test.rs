@@ -197,8 +197,8 @@ fn test_navigator_cone_with_hypergraph() {
     let query: Tensor<WgpuBackend, 1> = embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
 
     // Create a cone
-    let cone = ConeConfig::new(std::f32::consts::PI / 2.0, 0.0)
-        .with_aperture(std::f32::consts::PI / 2.0); // Wide aperture for testing
+    let cone =
+        ConeConfig::new(std::f32::consts::PI / 2.0, 0.0).with_aperture(std::f32::consts::PI / 2.0); // Wide aperture for testing
 
     let result = navigator.navigate_cone(query, 50.0, &cone, RngKey::new(123), 3, &device);
 
@@ -242,22 +242,34 @@ fn test_hypergraph_spring_energy_affects_navigation() {
 
     // Navigator 1: No graph weight
     let weights_no_graph = NavigationWeights::default().with_graph(0.0);
-    let navigator_no_graph =
-        NavigatorEBM::new(embeddings.clone(), prominence.clone(), None, config.clone(), &device)
-            .with_weights(weights_no_graph);
+    let navigator_no_graph = NavigatorEBM::new(
+        embeddings.clone(),
+        prominence.clone(),
+        None,
+        config.clone(),
+        &device,
+    )
+    .with_weights(weights_no_graph);
 
     // Navigator 2: Strong graph weight
     let hypergraph_ebm = HypergraphEBM::from_sidecar(&sidecar, 0.1, 0.3, &device);
     let weights_with_graph = NavigationWeights::default().with_graph(1.0);
-    let navigator_with_graph =
-        NavigatorEBM::new(embeddings.clone(), prominence.clone(), None, config.clone(), &device)
-            .with_hypergraph(hypergraph_ebm)
-            .with_weights(weights_with_graph);
+    let navigator_with_graph = NavigatorEBM::new(
+        embeddings.clone(),
+        prominence.clone(),
+        None,
+        config.clone(),
+        &device,
+    )
+    .with_hypergraph(hypergraph_ebm)
+    .with_weights(weights_with_graph);
 
     // Same query
-    let query: Tensor<WgpuBackend, 1> = Tensor::random([d], Distribution::Normal(0.0, 1.0), &device);
+    let query: Tensor<WgpuBackend, 1> =
+        Tensor::random([d], Distribution::Normal(0.0, 1.0), &device);
 
-    let result_no_graph = navigator_no_graph.navigate(query.clone(), 50.0, RngKey::new(42), 5, &device);
+    let result_no_graph =
+        navigator_no_graph.navigate(query.clone(), 50.0, RngKey::new(42), 5, &device);
     let result_with_graph = navigator_with_graph.navigate(query, 50.0, RngKey::new(42), 5, &device);
 
     println!("Without graph: {:?}", result_no_graph.target_indices);
@@ -304,7 +316,8 @@ fn test_navigation_with_entropy_weighting() {
     )
     .with_weights(weights);
 
-    let query: Tensor<WgpuBackend, 1> = Tensor::random([d], Distribution::Normal(0.0, 1.0), &device);
+    let query: Tensor<WgpuBackend, 1> =
+        Tensor::random([d], Distribution::Normal(0.0, 1.0), &device);
 
     let result = navigator.navigate(query, 50.0, RngKey::new(42), 10, &device);
 
@@ -353,4 +366,3 @@ fn test_navigation_weights_serialization() {
     assert!((recovered.lambda_entropy - 0.1).abs() < 1e-6);
     assert!((recovered.lambda_path - 0.05).abs() < 1e-6);
 }
-

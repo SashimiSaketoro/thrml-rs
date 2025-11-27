@@ -248,10 +248,7 @@ pub fn mean_reciprocal_rank(all_results: &[(Vec<usize>, usize)]) -> f32 {
 /// ```
 pub fn ndcg_at_k(results: &[usize], ground_truth: usize, k: usize) -> f32 {
     // Find position of ground truth in top-k
-    let position = results
-        .iter()
-        .take(k)
-        .position(|&idx| idx == ground_truth);
+    let position = results.iter().take(k).position(|&idx| idx == ground_truth);
 
     match position {
         Some(pos) => {

@@ -763,7 +763,11 @@ impl RootsPartition {
             prominence_stats: ProminenceStats::default(),
             radius_range: (f32::MAX, f32::MIN),
             mean_position: None,
-            member_indices: if store_indices { Some(Vec::new()) } else { None },
+            member_indices: if store_indices {
+                Some(Vec::new())
+            } else {
+                None
+            },
         }
     }
 
@@ -853,7 +857,7 @@ fn run_ising_partition(
 ) -> Vec<Vec<usize>> {
     // Use CPU Ising for precision-sensitive max-cut
     // (This is the recommended path for Apple Silicon with unified memory)
-    
+
     if let Some(sparse) = sparse_sim {
         // Use sparse similarity path
         cpu_ising::hierarchical_partition_sparse(
@@ -898,7 +902,9 @@ fn run_ising_partition_with_bytes(
     _compute_config: &HybridConfig,
 ) -> Vec<Vec<usize>> {
     // Get substring config, or fall back to embedding-only
-    let sub_config = config.substring_config.unwrap_or(SubstringConfig::embedding_only());
+    let sub_config = config
+        .substring_config
+        .unwrap_or(SubstringConfig::embedding_only());
 
     // Use the bytes-enhanced partition functions
     if let Some(sparse) = sparse_sim {
@@ -979,10 +985,7 @@ impl PatchClassifierEBM {
         let d = partitions.first().map(|p| p.dim()).unwrap_or(768);
 
         // Build centroids matrix [K, D]
-        let centroids_data: Vec<f32> = partitions
-            .iter()
-            .flat_map(|p| p.centroid.clone())
-            .collect();
+        let centroids_data: Vec<f32> = partitions.iter().flat_map(|p| p.centroid.clone()).collect();
 
         let centroids: Tensor<WgpuBackend, 2> = {
             let tensor_1d: Tensor<WgpuBackend, 1> =
@@ -1034,10 +1037,8 @@ impl PatchClassifierEBM {
         let diff = self.centroids.clone() - projected_expanded; // [K, D]
 
         // squared_dist = sum(diff²) per row -> [K]
-        let squared_dist: Tensor<WgpuBackend, 1> = diff
-            .powf_scalar(2.0)
-            .sum_dim(1)
-            .squeeze_dim::<1>(1);
+        let squared_dist: Tensor<WgpuBackend, 1> =
+            diff.powf_scalar(2.0).sum_dim(1).squeeze_dim::<1>(1);
 
         // Scale by temperature and subtract log-prior
         // E(q, k) = ||diff||² / τ_k - log(prior_k)
@@ -1239,10 +1240,7 @@ impl RootsIndex {
 
         // Build centroids matrix
         let k = partitions.len();
-        let centroids_data: Vec<f32> = partitions
-            .iter()
-            .flat_map(|p| p.centroid.clone())
-            .collect();
+        let centroids_data: Vec<f32> = partitions.iter().flat_map(|p| p.centroid.clone()).collect();
 
         let centroids_matrix: Tensor<WgpuBackend, 2> = {
             let tensor_1d: Tensor<WgpuBackend, 1> =
@@ -1364,10 +1362,7 @@ impl RootsIndex {
 
         // Build centroids matrix
         let k = partitions.len();
-        let centroids_data: Vec<f32> = partitions
-            .iter()
-            .flat_map(|p| p.centroid.clone())
-            .collect();
+        let centroids_data: Vec<f32> = partitions.iter().flat_map(|p| p.centroid.clone()).collect();
 
         let centroids_matrix: Tensor<WgpuBackend, 2> = {
             let tensor_1d: Tensor<WgpuBackend, 1> =
@@ -1463,9 +1458,9 @@ impl RootsIndex {
 
         for (partition_id, strength) in candidates {
             // Check if dominated by nearby peak (simple proximity check)
-            let dominated = peaks.iter().any(|p: &ActivationPeak| {
-                (p.partition_id as i32 - partition_id as i32).abs() < 2
-            });
+            let dominated = peaks
+                .iter()
+                .any(|p: &ActivationPeak| (p.partition_id as i32 - partition_id as i32).abs() < 2);
 
             if !dominated && partition_id < self.partitions.len() {
                 let partition = &self.partitions[partition_id];
@@ -1473,7 +1468,8 @@ impl RootsIndex {
                 // Compute spread (variance of activation in neighborhood)
                 let neighborhood_start = partition_id.saturating_sub(2);
                 let neighborhood_end = (partition_id + 3).min(act_data.len());
-                let neighborhood: Vec<f32> = act_data[neighborhood_start..neighborhood_end].to_vec();
+                let neighborhood: Vec<f32> =
+                    act_data[neighborhood_start..neighborhood_end].to_vec();
                 let mean = neighborhood.iter().sum::<f32>() / neighborhood.len() as f32;
                 let spread = (neighborhood.iter().map(|x| (x - mean).powi(2)).sum::<f32>()
                     / neighborhood.len() as f32)
@@ -1645,10 +1641,8 @@ impl PatchClassifierEBM {
         let mut losses = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
-            let query: Tensor<WgpuBackend, 1> = queries
-                .clone()
-                .slice([i..i + 1, 0..d])
-                .reshape([d as i32]);
+            let query: Tensor<WgpuBackend, 1> =
+                queries.clone().slice([i..i + 1, 0..d]).reshape([d as i32]);
 
             let energies = self.energy(&query);
             let energy_data: Vec<f32> = energies
@@ -1662,10 +1656,7 @@ impl PatchClassifierEBM {
             total_e_pos += e_pos;
 
             // log Z = log(Σ_k exp(-E(q, k) / τ))
-            let scaled_energies: Vec<f32> = energy_data
-                .iter()
-                .map(|&e| -e / temperature)
-                .collect();
+            let scaled_energies: Vec<f32> = energy_data.iter().map(|&e| -e / temperature).collect();
             let max_e: f32 = scaled_energies
                 .iter()
                 .cloned()
@@ -1686,8 +1677,7 @@ impl PatchClassifierEBM {
             losses.push(loss);
         }
 
-        let loss_tensor: Tensor<WgpuBackend, 1> =
-            Tensor::from_data(losses.as_slice(), device);
+        let loss_tensor: Tensor<WgpuBackend, 1> = Tensor::from_data(losses.as_slice(), device);
 
         (
             loss_tensor,
@@ -1708,10 +1698,8 @@ impl PatchClassifierEBM {
         let mut correct = 0usize;
 
         for i in 0..batch_size {
-            let query: Tensor<WgpuBackend, 1> = queries
-                .clone()
-                .slice([i..i + 1, 0..d])
-                .reshape([d as i32]);
+            let query: Tensor<WgpuBackend, 1> =
+                queries.clone().slice([i..i + 1, 0..d]).reshape([d as i32]);
 
             let routed = self.route(&query);
             if routed == correct_partitions[i] {
@@ -1750,14 +1738,9 @@ impl PatchClassifierEBM {
         let mut total_e_neg = 0.0f32;
 
         for i in 0..batch_size {
-            let query: Tensor<WgpuBackend, 1> = queries
-                .clone()
-                .slice([i..i + 1, 0..d])
-                .reshape([d as i32]);
-            let query_data: Vec<f32> = query
-                .into_data()
-                .to_vec()
-                .expect("query to vec");
+            let query: Tensor<WgpuBackend, 1> =
+                queries.clone().slice([i..i + 1, 0..d]).reshape([d as i32]);
+            let query_data: Vec<f32> = query.into_data().to_vec().expect("query to vec");
 
             let correct_k = correct_partitions[i];
 
@@ -1790,10 +1773,7 @@ impl PatchClassifierEBM {
             }
 
             // Softmax probabilities
-            let scaled: Vec<f32> = energies
-                .iter()
-                .map(|&e| -e / config.temperature)
-                .collect();
+            let scaled: Vec<f32> = energies.iter().map(|&e| -e / config.temperature).collect();
             let max_s: f32 = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let exp_scaled: Vec<f32> = scaled.iter().map(|&s| (s - max_s).exp()).collect();
             let sum_exp: f32 = exp_scaled.iter().sum();
@@ -1817,9 +1797,7 @@ impl PatchClassifierEBM {
                 }
             }
 
-            total_loss += energies[correct_k]
-                + config.temperature
-                    * (max_s + sum_exp.ln());
+            total_loss += energies[correct_k] + config.temperature * (max_s + sum_exp.ln());
             total_e_pos += energies[correct_k];
             total_e_neg += energies.iter().sum::<f32>() / energies.len() as f32;
         }
@@ -1861,7 +1839,7 @@ impl PatchClassifierEBM {
 ///
 /// From Section 8.8:
 /// ```text
-/// lr(t) = 
+/// lr(t) =
 ///     lr_max * t / warmup_steps           if t < warmup_steps
 ///     lr_min + (lr_max - lr_min) * 0.5 * (1 + cos(π * (t - warmup) / (total - warmup)))  otherwise
 /// ```
@@ -1929,9 +1907,9 @@ impl TemperatureSchedule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::tensor::Distribution;
     use crate::config::ScaleProfile;
     use crate::SphereConfig;
+    use burn::tensor::Distribution;
     use thrml_core::backend::init_gpu_device;
 
     #[test]
@@ -1988,7 +1966,10 @@ mod tests {
         let key = RngKey::new(42);
         let roots = RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, key, &device);
 
-        assert!(roots.partitions.len() >= 1, "Should have at least 1 partition");
+        assert!(
+            roots.partitions.len() >= 1,
+            "Should have at least 1 partition"
+        );
 
         // All points should be assigned
         let total_assigned: usize = roots.partitions.iter().map(|p| p.point_count).sum();
@@ -2016,7 +1997,8 @@ mod tests {
             SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
 
         let roots_config = RootsConfig::dev().with_partitions(4);
-        let roots = RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, RngKey::new(42), &device);
+        let roots =
+            RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, RngKey::new(42), &device);
 
         let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
 
@@ -2045,7 +2027,8 @@ mod tests {
             SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
 
         let roots_config = RootsConfig::dev().with_partitions(4);
-        let roots = RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, RngKey::new(42), &device);
+        let roots =
+            RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, RngKey::new(42), &device);
 
         let classifier = roots.classifier.unwrap();
 
@@ -2087,7 +2070,7 @@ mod tests {
                     0 => format!("function_calculate_total_{}", i).into_bytes(),
                     1 => format!("calculate_total").into_bytes(), // contained in 0
                     2 => format!("def process_data_{}", i).into_bytes(),
-                    _ => format!("process_data").into_bytes(),    // contained in 2
+                    _ => format!("process_data").into_bytes(), // contained in 2
                 }
             })
             .collect();
@@ -2140,8 +2123,7 @@ mod tests {
 
         // Test custom weights
         let custom = SubstringConfig::with_weights(0.5, 0.5);
-        let config2 = RootsConfig::default()
-            .with_substring_coupling(custom);
+        let config2 = RootsConfig::default().with_substring_coupling(custom);
 
         let sub2 = config2.substring_config.unwrap();
         assert!((sub2.alpha - 0.5).abs() < 0.01);

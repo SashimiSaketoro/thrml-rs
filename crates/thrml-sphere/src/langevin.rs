@@ -5,19 +5,16 @@
 //!
 //! For general Langevin utilities, see `thrml_samplers::langevin`.
 
+use crate::config::SphereConfig;
+use crate::hamiltonian::SphereHamiltonian;
 use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
 use thrml_core::SphericalCoords;
 use thrml_samplers::RngKey;
-use crate::hamiltonian::SphereHamiltonian;
-use crate::config::SphereConfig;
 
 // Re-export general Langevin utilities
 pub use thrml_samplers::langevin::{
-    AnnealingSchedule,
-    LangevinConfig,
-    langevin_step_1d,
-    langevin_step_2d,
+    langevin_step_1d, langevin_step_2d, AnnealingSchedule, LangevinConfig,
 };
 
 /// Sphere-specific Langevin dynamics sampler.
@@ -50,7 +47,7 @@ impl SphereLangevinSampler {
     pub fn from_config(config: &SphereConfig) -> Self {
         Self::new(config.step_size, config.temperature, config.n_steps)
     }
-    
+
     /// Set gradient clipping threshold.
     pub fn with_gradient_clip(mut self, max_grad: f32) -> Self {
         self.gradient_clip = Some(max_grad);
@@ -172,12 +169,7 @@ pub struct AnnealingSphereLangevinSampler {
 
 impl AnnealingSphereLangevinSampler {
     /// Create with linear annealing.
-    pub fn linear(
-        step_size: f32,
-        temp_init: f32,
-        temp_final: f32,
-        n_steps: usize,
-    ) -> Self {
+    pub fn linear(step_size: f32, temp_init: f32, temp_final: f32, n_steps: usize) -> Self {
         Self {
             sampler: SphereLangevinSampler::new(step_size, temp_init, n_steps),
             schedule: AnnealingSchedule::Linear {
@@ -202,7 +194,7 @@ impl AnnealingSphereLangevinSampler {
         for (step, step_key) in keys.into_iter().enumerate() {
             let t = step as f32 / n_steps_f;
             let temperature = self.schedule.temperature(t);
-            
+
             let step_sampler = SphereLangevinSampler {
                 step_size: self.sampler.step_size,
                 temperature,
@@ -232,19 +224,14 @@ mod tests {
         let device = init_gpu_device();
         let n = 10;
 
-        let ideal_radii: Tensor<WgpuBackend, 1> = 
-            Tensor::from_data([50.0; 10].as_slice(), &device);
-        
-        let init_radii: Tensor<WgpuBackend, 1> = 
+        let ideal_radii: Tensor<WgpuBackend, 1> = Tensor::from_data([50.0; 10].as_slice(), &device);
+
+        let init_radii: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(30.0, 70.0), &device);
         let init_coords = SphericalCoords::init_random(n, init_radii, &device);
 
         let similarity: Tensor<WgpuBackend, 2> = Tensor::zeros([n, n], &device);
-        let hamiltonian = WaterFillingHamiltonian::new(
-            ideal_radii.clone(),
-            similarity,
-            1.0,
-        );
+        let hamiltonian = WaterFillingHamiltonian::new(ideal_radii.clone(), similarity, 1.0);
 
         let sampler = SphereLangevinSampler::new(0.5, 0.0, 50);
         let key = RngKey::new(42);
@@ -252,10 +239,15 @@ mod tests {
 
         let final_r: Vec<f32> = final_coords.r.into_data().to_vec().expect("r to vec");
         let ideal_r: Vec<f32> = ideal_radii.into_data().to_vec().expect("ideal to vec");
-        
+
         for (r, ideal) in final_r.iter().zip(ideal_r.iter()) {
             let error = (r - ideal).abs();
-            assert!(error < 5.0, "Radius should converge to ideal: {} vs {}", r, ideal);
+            assert!(
+                error < 5.0,
+                "Radius should converge to ideal: {} vs {}",
+                r,
+                ideal
+            );
         }
     }
 }

@@ -85,7 +85,11 @@ impl InteractionData {
                 ideal_radii,
                 similarity,
                 interaction_radius,
-            } => Some((ideal_radii.as_ref(), similarity.as_ref(), *interaction_radius)),
+            } => Some((
+                ideal_radii.as_ref(),
+                similarity.as_ref(),
+                *interaction_radius,
+            )),
             _ => None,
         }
     }

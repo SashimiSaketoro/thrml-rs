@@ -163,7 +163,10 @@ mod tests {
         assert_eq!(ScaleProfile::from_str("dev"), Some(ScaleProfile::Dev));
         assert_eq!(ScaleProfile::from_str("MEDIUM"), Some(ScaleProfile::Medium));
         assert_eq!(ScaleProfile::from_str("large"), Some(ScaleProfile::Large));
-        assert_eq!(ScaleProfile::from_str("planetary"), Some(ScaleProfile::Planetary));
+        assert_eq!(
+            ScaleProfile::from_str("planetary"),
+            Some(ScaleProfile::Planetary)
+        );
         assert_eq!(ScaleProfile::from_str("unknown"), None);
     }
 
@@ -179,5 +182,3 @@ mod tests {
         assert_eq!(config.temperature, 0.05);
     }
 }
-
-

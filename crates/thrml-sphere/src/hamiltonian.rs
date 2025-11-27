@@ -10,8 +10,8 @@
 
 use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
-use thrml_core::SphericalCoords;
 use thrml_core::distance::pairwise_distances_sq;
+use thrml_core::SphericalCoords;
 
 /// Trait for sphere Hamiltonians.
 ///
@@ -155,24 +155,23 @@ mod tests {
         let n = 10;
 
         // Create coords at ideal radii
-        let ideal_radii: Tensor<WgpuBackend, 1> = 
+        let ideal_radii: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(10.0, 100.0), &device);
         let coords = SphericalCoords::init_random(n, ideal_radii.clone(), &device);
 
         let similarity: Tensor<WgpuBackend, 2> = Tensor::zeros([n, n], &device);
-        let hamiltonian = WaterFillingHamiltonian::new(
-            ideal_radii,
-            similarity,
-            1.0,
-        );
+        let hamiltonian = WaterFillingHamiltonian::new(ideal_radii, similarity, 1.0);
 
         // Energy should be zero at ideal positions
         let energy = hamiltonian.gravity_energy(&coords);
         let energy_data: Vec<f32> = energy.into_data().to_vec().expect("energy to vec");
-        
+
         for e in energy_data {
-            assert!(e.abs() < 1e-6, "Energy at ideal radius should be ~0, got {}", e);
+            assert!(
+                e.abs() < 1e-6,
+                "Energy at ideal radius should be ~0, got {}",
+                e
+            );
         }
     }
 }
-

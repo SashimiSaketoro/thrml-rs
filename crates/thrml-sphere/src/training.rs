@@ -162,7 +162,10 @@ impl TrainableNavigatorEBM {
     }
 
     /// Get current weights as tensor.
-    pub fn weights_tensor(&self, device: &burn::backend::wgpu::WgpuDevice) -> Tensor<WgpuBackend, 1> {
+    pub fn weights_tensor(
+        &self,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
         self.state.weights.to_tensor(device)
     }
 
@@ -181,14 +184,9 @@ impl TrainableNavigatorEBM {
         coords: &thrml_core::SphericalCoords,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> f32 {
-        let energies = self.navigator.total_energy(
-            query,
-            query_radius,
-            coords,
-            &[target_idx],
-            None,
-            device,
-        );
+        let energies =
+            self.navigator
+                .total_energy(query, query_radius, coords, &[target_idx], None, device);
         let energy_data: Vec<f32> = energies.into_data().to_vec().expect("energy to vec");
         energy_data.first().copied().unwrap_or(0.0)
     }
@@ -209,14 +207,9 @@ impl TrainableNavigatorEBM {
         // Compute energies for all points
         let n = self.navigator.n_points();
         let all_indices: Vec<usize> = (0..n).collect();
-        let energies = self.navigator.total_energy(
-            query,
-            query_radius,
-            &coords,
-            &all_indices,
-            None,
-            device,
-        );
+        let energies =
+            self.navigator
+                .total_energy(query, query_radius, &coords, &all_indices, None, device);
 
         // Convert to probabilities via softmax
         let energy_data: Vec<f32> = energies.into_data().to_vec().expect("energies to vec");
@@ -320,7 +313,8 @@ impl TrainableNavigatorEBM {
         let mut energy_components_neg = [0.0f32; 5];
 
         // Compute component energies for positive
-        energy_components_pos[0] = self.navigator
+        energy_components_pos[0] = self
+            .navigator
             .semantic_energy(&example.query, &[example.positive_target], device)
             .into_data()
             .to_vec::<f32>()
@@ -328,15 +322,22 @@ impl TrainableNavigatorEBM {
             .first()
             .copied()
             .unwrap_or(0.0);
-        energy_components_pos[1] = self.navigator
-            .radial_energy(example.query_radius, &coords, &[example.positive_target], device)
+        energy_components_pos[1] = self
+            .navigator
+            .radial_energy(
+                example.query_radius,
+                &coords,
+                &[example.positive_target],
+                device,
+            )
             .into_data()
             .to_vec::<f32>()
             .unwrap()
             .first()
             .copied()
             .unwrap_or(0.0);
-        energy_components_pos[3] = self.navigator
+        energy_components_pos[3] = self
+            .navigator
             .entropy_energy(&[example.positive_target], device)
             .into_data()
             .to_vec::<f32>()
@@ -347,7 +348,8 @@ impl TrainableNavigatorEBM {
 
         // Average component energies for negatives
         for &neg_idx in &negatives {
-            energy_components_neg[0] += self.navigator
+            energy_components_neg[0] += self
+                .navigator
                 .semantic_energy(&example.query, &[neg_idx], device)
                 .into_data()
                 .to_vec::<f32>()
@@ -355,7 +357,8 @@ impl TrainableNavigatorEBM {
                 .first()
                 .copied()
                 .unwrap_or(0.0);
-            energy_components_neg[1] += self.navigator
+            energy_components_neg[1] += self
+                .navigator
                 .radial_energy(example.query_radius, &coords, &[neg_idx], device)
                 .into_data()
                 .to_vec::<f32>()
@@ -363,7 +366,8 @@ impl TrainableNavigatorEBM {
                 .first()
                 .copied()
                 .unwrap_or(0.0);
-            energy_components_neg[3] += self.navigator
+            energy_components_neg[3] += self
+                .navigator
                 .entropy_energy(&[neg_idx], device)
                 .into_data()
                 .to_vec::<f32>()
@@ -417,7 +421,10 @@ impl TrainableNavigatorEBM {
 
         // Add weight decay
         let current_weights = self.state.weights.to_tensor(device);
-        let current_data: Vec<f32> = current_weights.into_data().to_vec().expect("weights to vec");
+        let current_data: Vec<f32> = current_weights
+            .into_data()
+            .to_vec()
+            .expect("weights to vec");
         for i in 0..5 {
             total_grads[i] += self.config.weight_decay * current_data[i];
         }
@@ -446,7 +453,8 @@ impl TrainableNavigatorEBM {
         };
 
         // Update weights
-        let new_weights_tensor = self.state.weights.to_tensor(device) - update * self.config.learning_rate;
+        let new_weights_tensor =
+            self.state.weights.to_tensor(device) - update * self.config.learning_rate;
 
         // Clamp weights to be non-negative
         let new_weights_tensor = new_weights_tensor.clamp(0.0, f32::MAX);
@@ -951,7 +959,9 @@ impl TrainableNavigatorEBM {
 
             // Validation
             if (epoch + 1) % config.val_every_n_epochs == 0 || epoch == n_epochs - 1 {
-                let val_key = batch_key_iter.next().unwrap_or_else(|| RngKey::new(epoch as u64));
+                let val_key = batch_key_iter
+                    .next()
+                    .unwrap_or_else(|| RngKey::new(epoch as u64));
                 let metrics = crate::evaluation::evaluate_navigator(
                     &self.navigator,
                     &dataset.validation,
@@ -1231,8 +1241,9 @@ impl TuningGrid {
                 self.temperatures.iter().flat_map(move |&temp| {
                     self.lambda_semantics.iter().flat_map(move |&sem| {
                         self.lambda_radials.iter().flat_map(move |&rad| {
-                            self.lambda_graphs.iter().map(move |&graph| {
-                                HyperparamConfig {
+                            self.lambda_graphs
+                                .iter()
+                                .map(move |&graph| HyperparamConfig {
                                     learning_rate: lr,
                                     negatives_per_positive: neg,
                                     temperature: temp,
@@ -1240,8 +1251,7 @@ impl TuningGrid {
                                     lambda_radial: rad,
                                     lambda_graph: graph,
                                     ..HyperparamConfig::default()
-                                }
-                            })
+                                })
                         })
                     })
                 })
@@ -1267,7 +1277,8 @@ impl TuningGrid {
             indices.swap(i, j);
         }
 
-        indices.into_iter()
+        indices
+            .into_iter()
             .take(n)
             .map(|i| all_configs[i].clone())
             .collect()
@@ -1385,7 +1396,9 @@ impl TuningSession {
 
     /// Number of remaining configs to run.
     pub fn n_remaining(&self) -> usize {
-        self.grid.n_combinations().saturating_sub(self.n_completed())
+        self.grid
+            .n_combinations()
+            .saturating_sub(self.n_completed())
     }
 
     /// Get the best result by primary metric (MRR).
@@ -1426,10 +1439,8 @@ impl TuningSession {
             .with_weights(config.to_navigation_weights());
 
         // Create trainable
-        let mut trainable = TrainableNavigatorEBM::from_navigator(
-            navigator,
-            config.to_training_config(),
-        );
+        let mut trainable =
+            TrainableNavigatorEBM::from_navigator(navigator, config.to_training_config());
 
         // Configure extended training
         let extended_config = ExtendedTrainingConfig::new(config.to_training_config())
@@ -1484,7 +1495,9 @@ impl TuningSession {
         key: RngKey,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Option<&TuningResult> {
-        let configs: Vec<_> = self.grid.iter_configs()
+        let configs: Vec<_> = self
+            .grid
+            .iter_configs()
             .filter(|c| !self.completed_config_ids.contains(&c.id()))
             .collect();
 
@@ -1502,15 +1515,8 @@ impl TuningSession {
                 config.lambda_semantic,
             );
 
-            let result = self.run_single_config(
-                config,
-                sphere_ebm,
-                dataset,
-                epochs,
-                batch_size,
-                k,
-                device,
-            );
+            let result =
+                self.run_single_config(config, sphere_ebm, dataset, epochs, batch_size, k, device);
 
             println!(
                 "  -> MRR={:.4}, R@10={:.4}, loss={:.4}",
@@ -1551,15 +1557,8 @@ impl TuningSession {
                 config.temperature,
             );
 
-            let result = self.run_single_config(
-                config,
-                sphere_ebm,
-                dataset,
-                epochs,
-                batch_size,
-                k,
-                device,
-            );
+            let result =
+                self.run_single_config(config, sphere_ebm, dataset, epochs, batch_size, k, device);
 
             println!(
                 "  -> MRR={:.4}, R@10={:.4}",
@@ -1603,11 +1602,23 @@ impl TuningSession {
 
         // Grid specification
         writeln!(file, "  \"grid\": {{")?;
-        writeln!(file, "    \"learning_rates\": {:?},", self.grid.learning_rates)?;
+        writeln!(
+            file,
+            "    \"learning_rates\": {:?},",
+            self.grid.learning_rates
+        )?;
         writeln!(file, "    \"negatives\": {:?},", self.grid.negatives)?;
         writeln!(file, "    \"temperatures\": {:?},", self.grid.temperatures)?;
-        writeln!(file, "    \"lambda_semantics\": {:?},", self.grid.lambda_semantics)?;
-        writeln!(file, "    \"lambda_radials\": {:?},", self.grid.lambda_radials)?;
+        writeln!(
+            file,
+            "    \"lambda_semantics\": {:?},",
+            self.grid.lambda_semantics
+        )?;
+        writeln!(
+            file,
+            "    \"lambda_radials\": {:?},",
+            self.grid.lambda_radials
+        )?;
         writeln!(file, "    \"lambda_graphs\": {:?}", self.grid.lambda_graphs)?;
         writeln!(file, "  }},")?;
 
@@ -1617,12 +1628,36 @@ impl TuningSession {
             let comma = if i < self.results.len() - 1 { "," } else { "" };
             writeln!(file, "    {{")?;
             writeln!(file, "      \"config\": {{")?;
-            writeln!(file, "        \"learning_rate\": {},", result.config.learning_rate)?;
-            writeln!(file, "        \"negatives_per_positive\": {},", result.config.negatives_per_positive)?;
-            writeln!(file, "        \"temperature\": {},", result.config.temperature)?;
-            writeln!(file, "        \"lambda_semantic\": {},", result.config.lambda_semantic)?;
-            writeln!(file, "        \"lambda_radial\": {},", result.config.lambda_radial)?;
-            writeln!(file, "        \"lambda_graph\": {}", result.config.lambda_graph)?;
+            writeln!(
+                file,
+                "        \"learning_rate\": {},",
+                result.config.learning_rate
+            )?;
+            writeln!(
+                file,
+                "        \"negatives_per_positive\": {},",
+                result.config.negatives_per_positive
+            )?;
+            writeln!(
+                file,
+                "        \"temperature\": {},",
+                result.config.temperature
+            )?;
+            writeln!(
+                file,
+                "        \"lambda_semantic\": {},",
+                result.config.lambda_semantic
+            )?;
+            writeln!(
+                file,
+                "        \"lambda_radial\": {},",
+                result.config.lambda_radial
+            )?;
+            writeln!(
+                file,
+                "        \"lambda_graph\": {}",
+                result.config.lambda_graph
+            )?;
             writeln!(file, "      }},")?;
             writeln!(file, "      \"metrics\": {{")?;
             writeln!(file, "        \"recall_1\": {},", result.metrics.recall_1)?;
@@ -1640,13 +1675,23 @@ impl TuningSession {
         writeln!(file, "  ],")?;
 
         // Best config index
-        let best_idx = self.results.iter()
+        let best_idx = self
+            .results
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| {
-                a.primary_metric().partial_cmp(&b.primary_metric()).unwrap_or(std::cmp::Ordering::Equal)
+                a.primary_metric()
+                    .partial_cmp(&b.primary_metric())
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(i, _)| i);
-        writeln!(file, "  \"best_config_index\": {}", best_idx.map(|i| i.to_string()).unwrap_or("null".to_string()))?;
+        writeln!(
+            file,
+            "  \"best_config_index\": {}",
+            best_idx
+                .map(|i| i.to_string())
+                .unwrap_or("null".to_string())
+        )?;
 
         writeln!(file, "}}")?;
         Ok(())
@@ -1776,7 +1821,11 @@ impl TuningSession {
             }
 
             // End of result object
-            if in_results && (trimmed == "}," || trimmed == "}") && !trimmed.contains("config") && !trimmed.contains("metrics") {
+            if in_results
+                && (trimmed == "}," || trimmed == "}")
+                && !trimmed.contains("config")
+                && !trimmed.contains("metrics")
+            {
                 results.push(TuningResult {
                     config: current_config.clone(),
                     metrics: current_metrics.clone(),
@@ -1968,7 +2017,10 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable hard negative mining with custom configuration.
-    pub fn with_hard_negative_miner(mut self, miner: crate::contrastive::HardNegativeMiner) -> Self {
+    pub fn with_hard_negative_miner(
+        mut self,
+        miner: crate::contrastive::HardNegativeMiner,
+    ) -> Self {
         self.hard_negative_miner = Some(miner);
         self
     }
@@ -1986,7 +2038,10 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable curriculum learning with custom schedule.
-    pub fn with_curriculum_schedule(mut self, schedule: crate::contrastive::NegativeCurriculumSchedule) -> Self {
+    pub fn with_curriculum_schedule(
+        mut self,
+        schedule: crate::contrastive::NegativeCurriculumSchedule,
+    ) -> Self {
         self.curriculum = Some(schedule);
         self
     }
@@ -2176,66 +2231,70 @@ impl TrainableNavigatorEBM {
                 let batch = &dataset.train[start..end];
 
                 // Mine hard negatives if configured
-                let batch_with_negatives: Vec<TrainingExample> = if let Some(miner) = &config.hard_negative_miner {
-                    batch
-                        .iter()
-                        .map(|ex| {
-                            let negatives = miner.mine(
-                                &ex.query,
-                                ex.positive_target,
-                                &self.navigator.sphere_ebm.embeddings,
-                                Some(&self.navigator.sphere_ebm.similarity),
-                                config.base.negatives_per_positive,
-                                device,
-                            );
-                            total_mined += negatives.len();
-                            total_batches += 1;
-                            TrainingExample {
-                                query: ex.query.clone(),
-                                query_radius: ex.query_radius,
-                                positive_target: ex.positive_target,
-                                negative_targets: Some(negatives),
-                            }
-                        })
-                        .collect()
-                } else if let Some(curriculum) = &config.curriculum {
-                    // Use curriculum-based negative selection
-                    batch
-                        .iter()
-                        .map(|ex| {
-                            // Get similarity scores for all candidates
-                            let sim_data: Vec<f32> = self.navigator.sphere_ebm.similarity
-                                .clone()
-                                .into_data()
-                                .to_vec()
-                                .expect("sim to vec");
-                            let n = self.navigator.n_points();
+                let batch_with_negatives: Vec<TrainingExample> =
+                    if let Some(miner) = &config.hard_negative_miner {
+                        batch
+                            .iter()
+                            .map(|ex| {
+                                let negatives = miner.mine(
+                                    &ex.query,
+                                    ex.positive_target,
+                                    &self.navigator.sphere_ebm.embeddings,
+                                    Some(&self.navigator.sphere_ebm.similarity),
+                                    config.base.negatives_per_positive,
+                                    device,
+                                );
+                                total_mined += negatives.len();
+                                total_batches += 1;
+                                TrainingExample {
+                                    query: ex.query.clone(),
+                                    query_radius: ex.query_radius,
+                                    positive_target: ex.positive_target,
+                                    negative_targets: Some(negatives),
+                                }
+                            })
+                            .collect()
+                    } else if let Some(curriculum) = &config.curriculum {
+                        // Use curriculum-based negative selection
+                        batch
+                            .iter()
+                            .map(|ex| {
+                                // Get similarity scores for all candidates
+                                let sim_data: Vec<f32> = self
+                                    .navigator
+                                    .sphere_ebm
+                                    .similarity
+                                    .clone()
+                                    .into_data()
+                                    .to_vec()
+                                    .expect("sim to vec");
+                                let n = self.navigator.n_points();
 
-                            let candidates: Vec<(usize, f32)> = (0..n)
-                                .filter(|&i| i != ex.positive_target)
-                                .map(|i| {
-                                    let sim = sim_data[ex.positive_target * n + i];
-                                    (i, sim)
-                                })
-                                .collect();
+                                let candidates: Vec<(usize, f32)> = (0..n)
+                                    .filter(|&i| i != ex.positive_target)
+                                    .map(|i| {
+                                        let sim = sim_data[ex.positive_target * n + i];
+                                        (i, sim)
+                                    })
+                                    .collect();
 
-                            let negatives = curriculum.select_negatives(
-                                &candidates,
-                                config.base.negatives_per_positive,
-                                epoch,
-                            );
+                                let negatives = curriculum.select_negatives(
+                                    &candidates,
+                                    config.base.negatives_per_positive,
+                                    epoch,
+                                );
 
-                            TrainingExample {
-                                query: ex.query.clone(),
-                                query_radius: ex.query_radius,
-                                positive_target: ex.positive_target,
-                                negative_targets: Some(negatives),
-                            }
-                        })
-                        .collect()
-                } else {
-                    batch.to_vec()
-                };
+                                TrainingExample {
+                                    query: ex.query.clone(),
+                                    query_radius: ex.query_radius,
+                                    positive_target: ex.positive_target,
+                                    negative_targets: Some(negatives),
+                                }
+                            })
+                            .collect()
+                    } else {
+                        batch.to_vec()
+                    };
 
                 // Update PCD buffer if configured
                 if let Some(buffer) = &mut pcd_buffer {
@@ -2281,7 +2340,9 @@ impl TrainableNavigatorEBM {
 
             // Validation
             if (epoch + 1) % config.validation.val_every_n_epochs == 0 || epoch == n_epochs - 1 {
-                let val_key = batch_key_iter.next().unwrap_or_else(|| RngKey::new(epoch as u64));
+                let val_key = batch_key_iter
+                    .next()
+                    .unwrap_or_else(|| RngKey::new(epoch as u64));
                 let metrics = crate::evaluation::evaluate_navigator(
                     &self.navigator,
                     &dataset.validation,
@@ -2337,10 +2398,13 @@ impl TrainableNavigatorEBM {
         self.navigator.weights = best_weights.clone();
 
         // Compile statistics
-        let hard_neg_stats = config.hard_negative_miner.as_ref().map(|_| HardNegativeStats {
-            avg_filtered_per_batch: total_filtered as f32 / total_batches.max(1) as f32,
-            total_mined,
-        });
+        let hard_neg_stats = config
+            .hard_negative_miner
+            .as_ref()
+            .map(|_| HardNegativeStats {
+                avg_filtered_per_batch: total_filtered as f32 / total_batches.max(1) as f32,
+                total_mined,
+            });
 
         let pcd_stats = pcd_buffer.map(|buffer| PCDStats {
             n_updates: buffer.n_updates,
@@ -2381,7 +2445,11 @@ impl std::fmt::Display for AdvancedTrainingReport {
         if let Some(stats) = &self.hard_neg_stats {
             writeln!(f, "\nHard Negative Mining:")?;
             writeln!(f, "  Total mined: {}", stats.total_mined)?;
-            writeln!(f, "  Avg filtered/batch: {:.2}", stats.avg_filtered_per_batch)?;
+            writeln!(
+                f,
+                "  Avg filtered/batch: {:.2}",
+                stats.avg_filtered_per_batch
+            )?;
         }
 
         if let Some(stats) = &self.pcd_stats {
@@ -2407,8 +2475,8 @@ impl std::fmt::Display for AdvancedTrainingReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::tensor::Distribution;
     use crate::config::ScaleProfile;
+    use burn::tensor::Distribution;
     use thrml_core::backend::init_gpu_device;
 
     #[test]
@@ -2476,7 +2544,8 @@ mod tests {
         );
 
         // Create a training example
-        let query: Tensor<WgpuBackend, 1> = embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> =
+            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
         let example = TrainingExample {
             query,
             query_radius: 50.0,
@@ -2511,8 +2580,7 @@ mod tests {
                 emb_data[i * d + j] = ((i + j) as f32 / (n + d) as f32).sin();
             }
         }
-        let embeddings_1d: Tensor<WgpuBackend, 1> =
-            Tensor::from_data(emb_data.as_slice(), &device);
+        let embeddings_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(emb_data.as_slice(), &device);
         let embeddings: Tensor<WgpuBackend, 2> = embeddings_1d.reshape([n as i32, d as i32]);
         let prominence: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
@@ -2622,13 +2690,8 @@ mod tests {
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
 
         let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(3);
-        let sphere_ebm = crate::sphere_ebm::SphereEBM::new(
-            embeddings,
-            prominence,
-            None,
-            sphere_config,
-            &device,
-        );
+        let sphere_ebm =
+            crate::sphere_ebm::SphereEBM::new(embeddings, prominence, None, sphere_config, &device);
 
         // Generate 2 positives per query, 4 negatives each
         let examples = generate_pairs_from_similarity(&sphere_ebm, 2, 4, &device);
@@ -2663,13 +2726,8 @@ mod tests {
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
 
         let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(3);
-        let sphere_ebm = crate::sphere_ebm::SphereEBM::new(
-            embeddings,
-            prominence,
-            None,
-            sphere_config,
-            &device,
-        );
+        let sphere_ebm =
+            crate::sphere_ebm::SphereEBM::new(embeddings, prominence, None, sphere_config, &device);
 
         // Create a simple graph with edges
         let mut sidecar = crate::hypergraph::HypergraphSidecar::new(n);

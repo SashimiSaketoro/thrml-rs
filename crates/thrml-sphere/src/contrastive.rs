@@ -179,7 +179,9 @@ impl HardNegativeMiner {
         // Get positive similarity to positive (for threshold computation)
         let positive_sims = if let Some(sim_mat) = similarity_matrix {
             let sim_data: Vec<f32> = sim_mat.clone().into_data().to_vec().expect("sim to vec");
-            (0..n).map(|i| sim_data[positive_idx * n + i]).collect::<Vec<f32>>()
+            (0..n)
+                .map(|i| sim_data[positive_idx * n + i])
+                .collect::<Vec<f32>>()
         } else {
             // Compute similarity of positive to all others
             self.compute_positive_similarities(positive_idx, embeddings, d, device)
@@ -292,13 +294,17 @@ impl HardNegativeMiner {
         let mut all_negatives = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
-            let query: Tensor<WgpuBackend, 1> = queries
-                .clone()
-                .slice([i..i + 1, 0..d])
-                .reshape([d as i32]);
+            let query: Tensor<WgpuBackend, 1> =
+                queries.clone().slice([i..i + 1, 0..d]).reshape([d as i32]);
 
-            let mut negatives =
-                self.mine(&query, positive_indices[i], embeddings, similarity_matrix, n_negatives, device);
+            let mut negatives = self.mine(
+                &query,
+                positive_indices[i],
+                embeddings,
+                similarity_matrix,
+                n_negatives,
+                device,
+            );
 
             // Add in-batch negatives if enabled
             if self.use_in_batch {
@@ -479,11 +485,10 @@ impl PersistentParticleBuffer {
         }
 
         // Add small noise for diversity
-        let particles_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(
-            particle_data.as_slice(),
-            device,
-        );
-        let particles: Tensor<WgpuBackend, 2> = particles_1d.reshape([self.n_particles as i32, d as i32]);
+        let particles_1d: Tensor<WgpuBackend, 1> =
+            Tensor::from_data(particle_data.as_slice(), device);
+        let particles: Tensor<WgpuBackend, 2> =
+            particles_1d.reshape([self.n_particles as i32, d as i32]);
 
         let noise: Tensor<WgpuBackend, 2> = Tensor::random(
             [self.n_particles, d],
@@ -579,7 +584,11 @@ impl PersistentParticleBuffer {
             }
         };
 
-        let particle_data: Vec<f32> = particles.clone().into_data().to_vec().expect("particles to vec");
+        let particle_data: Vec<f32> = particles
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("particles to vec");
 
         // Sample indices
         let mut sampled_data = Vec::with_capacity(batch_size * self.dim);
@@ -593,7 +602,11 @@ impl PersistentParticleBuffer {
                 let end = start + self.dim;
                 sampled_data.extend_from_slice(&particle_data[start..end]);
             } else if let Some(data_tensor) = data {
-                let data_vec: Vec<f32> = data_tensor.clone().into_data().to_vec().expect("data to vec");
+                let data_vec: Vec<f32> = data_tensor
+                    .clone()
+                    .into_data()
+                    .to_vec()
+                    .expect("data to vec");
                 let n_data = data_vec.len() / self.dim;
                 let idx = i % n_data;
                 let start = idx * self.dim;
@@ -621,7 +634,11 @@ impl PersistentParticleBuffer {
         }
 
         let particles = self.particles.as_ref().unwrap();
-        let particle_data: Vec<f32> = particles.clone().into_data().to_vec().expect("particles to vec");
+        let particle_data: Vec<f32> = particles
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("particles to vec");
         let data_vec: Vec<f32> = data.clone().into_data().to_vec().expect("data to vec");
         let n_data = data_vec.len() / self.dim;
 
@@ -640,10 +657,9 @@ impl PersistentParticleBuffer {
             }
         }
 
-        let new_particles_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(new_data.as_slice(), device);
-        self.particles = Some(
-            new_particles_1d.reshape([self.n_particles as i32, self.dim as i32]),
-        );
+        let new_particles_1d: Tensor<WgpuBackend, 1> =
+            Tensor::from_data(new_data.as_slice(), device);
+        self.particles = Some(new_particles_1d.reshape([self.n_particles as i32, self.dim as i32]));
     }
 }
 
@@ -779,18 +795,15 @@ impl NegativeCurriculumSchedule {
         let progress = progress.clamp(0.0, 1.0);
 
         // Phase boundaries
-        let medium_progress =
-            self.medium_start_epoch as f32 / self.curriculum_end_epoch as f32;
-        let hard_progress =
-            self.hard_start_epoch as f32 / self.curriculum_end_epoch as f32;
+        let medium_progress = self.medium_start_epoch as f32 / self.curriculum_end_epoch as f32;
+        let hard_progress = self.hard_start_epoch as f32 / self.curriculum_end_epoch as f32;
 
         let (easy, medium, hard) = if progress < medium_progress {
             // Phase 1: All easy
             (1.0 - self.min_easy_fraction, self.min_easy_fraction, 0.0)
         } else if progress < hard_progress {
             // Phase 2: Transition easy -> medium
-            let phase_progress =
-                (progress - medium_progress) / (hard_progress - medium_progress);
+            let phase_progress = (progress - medium_progress) / (hard_progress - medium_progress);
             let easy = 1.0 - phase_progress * 0.5;
             let medium = phase_progress * 0.5;
             (easy.max(self.min_easy_fraction), medium, 0.0)
@@ -816,9 +829,10 @@ impl NegativeCurriculumSchedule {
     pub fn get_similarity_bounds(&self, epoch: usize) -> (f32, f32) {
         match self.get_difficulty(epoch) {
             NegativeDifficulty::Easy => (0.0, self.easy_similarity_threshold),
-            NegativeDifficulty::Medium => {
-                (self.easy_similarity_threshold, self.hard_similarity_threshold)
-            }
+            NegativeDifficulty::Medium => (
+                self.easy_similarity_threshold,
+                self.hard_similarity_threshold,
+            ),
             NegativeDifficulty::Hard => (self.hard_similarity_threshold, 1.0),
         }
     }
@@ -964,8 +978,7 @@ impl SGLDNegativeConfig {
 
     /// Convert to LangevinConfig.
     pub fn to_langevin_config(&self) -> LangevinConfig {
-        LangevinConfig::new(self.step_size, self.temperature)
-            .with_gradient_clip(self.gradient_clip)
+        LangevinConfig::new(self.step_size, self.temperature).with_gradient_clip(self.gradient_clip)
     }
 }
 
@@ -1052,13 +1065,16 @@ impl SGLDNegativeSampler {
                 data_init.clone().slice([0..batch_size, 0..d])
             } else {
                 // Repeat data if batch_size > n
-                let mut data_vec: Vec<f32> = data_init.clone().into_data().to_vec().expect("data to vec");
+                let mut data_vec: Vec<f32> =
+                    data_init.clone().into_data().to_vec().expect("data to vec");
                 while data_vec.len() < batch_size * d {
-                    let orig: Vec<f32> = data_init.clone().into_data().to_vec().expect("data to vec");
+                    let orig: Vec<f32> =
+                        data_init.clone().into_data().to_vec().expect("data to vec");
                     data_vec.extend(orig);
                 }
                 data_vec.truncate(batch_size * d);
-                let data_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(data_vec.as_slice(), device);
+                let data_1d: Tensor<WgpuBackend, 1> =
+                    Tensor::from_data(data_vec.as_slice(), device);
                 data_1d.reshape([batch_size as i32, d as i32])
             };
 
@@ -1080,7 +1096,12 @@ impl SGLDNegativeSampler {
 
             // Apply proximal constraint if enabled
             if self.config.proximal_radius > 0.0 {
-                state = self.project_to_ball(&state, &init_for_proximal, self.config.proximal_radius, device);
+                state = self.project_to_ball(
+                    &state,
+                    &init_for_proximal,
+                    self.config.proximal_radius,
+                    device,
+                );
             }
         }
 
@@ -1140,7 +1161,8 @@ mod tests {
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
 
         // Use first embedding as query
-        let query: Tensor<WgpuBackend, 1> = embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> =
+            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
 
         let miner = HardNegativeMiner::default();
         let negatives = miner.mine(&query, 0, &embeddings, None, 8, &device);
@@ -1189,8 +1211,7 @@ mod tests {
         let n_particles = 50;
         let dim = 8;
 
-        let mut buffer = PersistentParticleBuffer::new(n_particles, dim)
-            .with_langevin_steps(3);
+        let mut buffer = PersistentParticleBuffer::new(n_particles, dim).with_langevin_steps(3);
 
         buffer.initialize_random(&device);
         let initial = buffer.get_particles().unwrap().clone();
@@ -1241,7 +1262,10 @@ mod tests {
 
         // Early training: mostly easy
         let (easy, _medium, hard) = schedule.get_fractions(0.05);
-        assert!(easy > 0.5, "Early training should have mostly easy negatives");
+        assert!(
+            easy > 0.5,
+            "Early training should have mostly easy negatives"
+        );
         assert!(hard < 0.1, "Early training should have few hard negatives");
 
         // Late training: mostly hard

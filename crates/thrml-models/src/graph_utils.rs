@@ -29,10 +29,10 @@ use thrml_core::node::{Node, NodeType};
 /// Each (di, dj) defines a connection from cell (i, j) to (i+di, j+dj).
 /// These create beyond-nearest-neighbor interactions for richer graph structure.
 const JUMP_PATTERNS: [(i32, i32); 4] = [
-    (1, 0),  // Vertical neighbor
-    (2, 1),  // Knight's move variant
-    (3, 2),  // Extended diagonal
-    (1, 4),  // Extended horizontal
+    (1, 0), // Vertical neighbor
+    (2, 1), // Knight's move variant
+    (3, 2), // Extended diagonal
+    (1, 4), // Extended horizontal
 ];
 
 /// Create a 2D square lattice graph with two-color blocking for block Gibbs sampling.

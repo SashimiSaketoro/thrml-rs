@@ -173,3 +173,4 @@ Since our Langevin sampler already computes `∇E`, we can:
 - Navigator training: `thrml-sphere/src/training.rs`
 - BLT entropy: `blt-burn/src/blt_core.rs`
 
+

@@ -256,7 +256,11 @@ impl BlockSamplingProgram {
                                 inverse_weights: sliced,
                             }
                         }
-                        InteractionData::Sphere { ideal_radii, similarity, interaction_radius } => {
+                        InteractionData::Sphere {
+                            ideal_radii,
+                            similarity,
+                            interaction_radius,
+                        } => {
                             // Sphere interactions are for Langevin dynamics, not Gibbs sampling
                             // Pass through unchanged since they shouldn't be used in BlockSamplingProgram
                             InteractionData::Sphere {

@@ -721,7 +721,7 @@ pub mod substring {
             // Step 3: Add new_byte at position 0
             //
             // Combined: ((hash - old_byte * B^(n-1)) * B + new_byte) mod M
-            
+
             let old_contribution = (old_byte as u64 * self.pow_base) % self.modulus;
             // Subtract old contribution (with modular arithmetic care)
             let after_sub = (self.hash + self.modulus - old_contribution) % self.modulus;
@@ -800,7 +800,9 @@ pub mod substring {
         }
 
         // Use built-in windows iterator for simplicity
-        haystack.windows(needle.len()).any(|window| window == needle)
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
     }
 
     /// Compute substring similarity between two byte sequences.
@@ -808,11 +810,7 @@ pub mod substring {
     /// Returns a score in [0, 1] based on:
     /// - Containment relationship
     /// - Multi-scale hash overlap
-    pub fn compute_similarity(
-        bytes_a: &[u8],
-        bytes_b: &[u8],
-        config: &SubstringConfig,
-    ) -> f64 {
+    pub fn compute_similarity(bytes_a: &[u8], bytes_b: &[u8], config: &SubstringConfig) -> f64 {
         let mut score = 0.0;
         let mut factors = 0;
 
@@ -917,12 +915,18 @@ pub mod substring {
             let container = b"the quick brown fox";
             let contained = b"quick brown";
             let sim_contain = compute_similarity(container, contained, &config);
-            assert!(sim_contain > 0.3, "Containment should have positive similarity");
+            assert!(
+                sim_contain > 0.3,
+                "Containment should have positive similarity"
+            );
 
             // Unrelated
             let unrelated = b"xyz123abc";
             let sim_unrelated = compute_similarity(a, unrelated, &config);
-            assert!(sim_unrelated < 0.1, "Unrelated strings should have low similarity");
+            assert!(
+                sim_unrelated < 0.1,
+                "Unrelated strings should have low similarity"
+            );
         }
 
         #[test]
@@ -994,8 +998,16 @@ pub mod cpu_ising {
                         .zip(emb_j.iter())
                         .map(|(&a, &b)| a as f64 * b as f64)
                         .sum();
-                    let norm_i: f64 = emb_i.iter().map(|&x| (x as f64).powi(2)).sum::<f64>().sqrt();
-                    let norm_j: f64 = emb_j.iter().map(|&x| (x as f64).powi(2)).sum::<f64>().sqrt();
+                    let norm_i: f64 = emb_i
+                        .iter()
+                        .map(|&x| (x as f64).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
+                    let norm_j: f64 = emb_j
+                        .iter()
+                        .map(|&x| (x as f64).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
                     let sim = dot / (norm_i * norm_j + 1e-10);
 
                     if sim.abs() > 0.01 {
@@ -1051,19 +1063,22 @@ pub mod cpu_ising {
                         .zip(emb_j.iter())
                         .map(|(&a, &b)| a as f64 * b as f64)
                         .sum();
-                    let norm_i: f64 = emb_i.iter().map(|&x| (x as f64).powi(2)).sum::<f64>().sqrt();
-                    let norm_j: f64 = emb_j.iter().map(|&x| (x as f64).powi(2)).sum::<f64>().sqrt();
+                    let norm_i: f64 = emb_i
+                        .iter()
+                        .map(|&x| (x as f64).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
+                    let norm_j: f64 = emb_j
+                        .iter()
+                        .map(|&x| (x as f64).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
                     let cosine_sim = dot / (norm_i * norm_j + 1e-10);
 
                     // Compute combined coupling (embedding + substring)
                     let coupling = if let Some(bytes) = raw_bytes {
                         if i < bytes.len() && j < bytes.len() {
-                            compute_combined_coupling(
-                                cosine_sim,
-                                &bytes[i],
-                                &bytes[j],
-                                &sub_config,
-                            )
+                            compute_combined_coupling(cosine_sim, &bytes[i], &bytes[j], &sub_config)
                         } else {
                             cosine_sim
                         }
@@ -1281,9 +1296,7 @@ pub mod cpu_ising {
         // Build local embeddings for this subset
         let local_embeddings: Vec<f32> = indices
             .iter()
-            .flat_map(|&idx| {
-                embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec()
-            })
+            .flat_map(|&idx| embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec())
             .collect();
 
         // Create Ising state
@@ -1464,9 +1477,7 @@ pub mod cpu_ising {
         // Build local embeddings for this subset
         let local_embeddings: Vec<f32> = indices
             .iter()
-            .flat_map(|&idx| {
-                embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec()
-            })
+            .flat_map(|&idx| embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec())
             .collect();
 
         // Build local bytes for this subset
@@ -1687,8 +1698,8 @@ pub mod cpu_ising {
                 &indices,
                 &embeddings,
                 d,
-                4,  // target K
-                2,  // min size
+                4,   // target K
+                2,   // min size
                 1.0, // beta
                 10,  // warmup
                 10,  // sweeps
@@ -1702,7 +1713,10 @@ pub mod cpu_ising {
             let total: usize = partitions.iter().map(|p| p.len()).sum();
             assert_eq!(total, n);
 
-            println!("Partitions: {:?}", partitions.iter().map(|p| p.len()).collect::<Vec<_>>());
+            println!(
+                "Partitions: {:?}",
+                partitions.iter().map(|p| p.len()).collect::<Vec<_>>()
+            );
         }
 
         #[test]
@@ -1730,16 +1744,16 @@ pub mod cpu_ising {
             // Create byte sequences with some containing relationships
             let raw_bytes: Vec<Vec<u8>> = vec![
                 b"hello world".to_vec(),
-                b"hello".to_vec(),           // contained in 0
-                b"world".to_vec(),           // contained in 0
+                b"hello".to_vec(), // contained in 0
+                b"world".to_vec(), // contained in 0
                 b"goodbye world".to_vec(),
-                b"goodbye".to_vec(),         // contained in 3
+                b"goodbye".to_vec(), // contained in 3
                 b"random text".to_vec(),
                 b"more random".to_vec(),
                 b"some other".to_vec(),
                 b"data here".to_vec(),
                 b"testing".to_vec(),
-                b"testing 123".to_vec(),     // contains 9
+                b"testing 123".to_vec(), // contains 9
                 b"abc xyz".to_vec(),
                 b"xyz abc".to_vec(),
                 b"final one".to_vec(),
@@ -1771,7 +1785,10 @@ pub mod cpu_ising {
             let total: usize = partitions.iter().map(|p| p.len()).sum();
             assert_eq!(total, n);
 
-            println!("Partitions with bytes: {:?}", partitions.iter().map(|p| p.len()).collect::<Vec<_>>());
+            println!(
+                "Partitions with bytes: {:?}",
+                partitions.iter().map(|p| p.len()).collect::<Vec<_>>()
+            );
 
             // Verify contained strings tend to be in same partition
             // (not guaranteed, but likely with the coupling)
@@ -1783,17 +1800,27 @@ pub mod cpu_ising {
                 let has_0 = part.contains(&0); // "hello world"
                 let has_1 = part.contains(&1); // "hello"
                 let has_2 = part.contains(&2); // "world"
-                
-                if has_0 && has_1 { same_partition_count += 1; }
-                if has_0 && has_2 { same_partition_count += 1; }
+
+                if has_0 && has_1 {
+                    same_partition_count += 1;
+                }
+                if has_0 && has_2 {
+                    same_partition_count += 1;
+                }
                 total_pairs += 2;
-                
+
                 if has_0 || has_1 || has_2 {
-                    println!("Partition {} contains hello-related: 0={} 1={} 2={}", pi, has_0, has_1, has_2);
+                    println!(
+                        "Partition {} contains hello-related: 0={} 1={} 2={}",
+                        pi, has_0, has_1, has_2
+                    );
                 }
             }
 
-            println!("Same partition for containment pairs: {}/{}", same_partition_count, total_pairs);
+            println!(
+                "Same partition for containment pairs: {}/{}",
+                same_partition_count, total_pairs
+            );
         }
 
         #[test]
@@ -1805,12 +1832,7 @@ pub mod cpu_ising {
             let bytes_a = b"function calculate_total";
             let bytes_b = b"calculate";
 
-            let combined = compute_combined_coupling(
-                embedding_sim,
-                bytes_a,
-                bytes_b,
-                &config,
-            );
+            let combined = compute_combined_coupling(embedding_sim, bytes_a, bytes_b, &config);
 
             println!("Combined coupling: {}", combined);
 
@@ -1834,7 +1856,7 @@ mod tests {
     #[test]
     fn test_compute_backend_default() {
         let backend = ComputeBackend::default();
-        
+
         #[cfg(target_os = "macos")]
         {
             assert!(backend.use_cpu(OpType::IsingSampling, None));
@@ -1845,7 +1867,7 @@ mod tests {
     #[test]
     fn test_precision_mode() {
         let mode = PrecisionMode::default();
-        
+
         assert!(!mode.use_f64_for_sh(32));
         assert!(mode.use_f64_for_sh(128));
     }
@@ -1857,4 +1879,3 @@ mod tests {
         assert!(config.cpu_threads > 0);
     }
 }
-

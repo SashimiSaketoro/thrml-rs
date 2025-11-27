@@ -241,16 +241,12 @@ fn main() -> Result<()> {
 
     // Save results
     if let Some(csv_path) = &args.output_csv {
-        session
-            .to_csv(csv_path)
-            .context("Failed to write CSV")?;
+        session.to_csv(csv_path).context("Failed to write CSV")?;
         println!("\nResults saved to {:?}", csv_path);
     }
 
     if let Some(json_path) = &args.output_json {
-        session
-            .to_json(json_path)
-            .context("Failed to write JSON")?;
+        session.to_json(json_path).context("Failed to write JSON")?;
         println!("Results saved to {:?}", json_path);
     }
 

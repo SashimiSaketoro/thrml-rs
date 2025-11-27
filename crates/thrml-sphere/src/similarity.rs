@@ -10,16 +10,10 @@
 
 // Re-export from thrml-core
 pub use thrml_core::similarity::{
-    cosine_similarity_matrix,
-    cosine_similarity_threshold,
-    cosine_similarity_topk,
-    SparseSimilarity,
+    cosine_similarity_matrix, cosine_similarity_threshold, cosine_similarity_topk, SparseSimilarity,
 };
 
 // Re-export distance functions for convenience
 pub use thrml_core::distance::{
-    gaussian_kernel,
-    laplacian_kernel,
-    pairwise_distances,
-    pairwise_distances_sq,
+    gaussian_kernel, laplacian_kernel, pairwise_distances, pairwise_distances_sq,
 };

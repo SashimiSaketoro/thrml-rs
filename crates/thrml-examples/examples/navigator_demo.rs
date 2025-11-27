@@ -48,7 +48,11 @@ use thrml_sphere::{
 
 #[derive(Parser)]
 #[command(name = "navigator_demo")]
-#[command(author, version, about = "Demonstrates multi-cone navigation from ROOTS peaks")]
+#[command(
+    author,
+    version,
+    about = "Demonstrates multi-cone navigation from ROOTS peaks"
+)]
 struct Args {
     /// BLT v3 SafeTensors file (contains embeddings + bytes together)
     /// Preferred format for substring-enhanced partitioning
@@ -189,13 +193,7 @@ fn main() -> Result<()> {
             )
         }
     } else {
-        MultiConeNavigator::from_sphere_ebm(
-            &sphere_ebm,
-            roots_config,
-            budget_config,
-            key,
-            &device,
-        )
+        MultiConeNavigator::from_sphere_ebm(&sphere_ebm, roots_config, budget_config, key, &device)
     };
 
     println!(

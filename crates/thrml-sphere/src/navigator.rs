@@ -714,11 +714,12 @@ impl NavigatorEBM {
             Some(hg_ebm) => {
                 // Compute spring energy for path nodes
                 let spring_e = hg_ebm.spring_energy(coords);
-                let spring_data: Vec<f32> =
-                    spring_e.into_data().to_vec().expect("spring to vec");
+                let spring_data: Vec<f32> = spring_e.into_data().to_vec().expect("spring to vec");
 
                 // Sum energy along path
-                path.iter().map(|&idx| spring_data.get(idx).copied().unwrap_or(0.0)).sum()
+                path.iter()
+                    .map(|&idx| spring_data.get(idx).copied().unwrap_or(0.0))
+                    .sum()
             }
             None => 0.0,
         }
@@ -774,12 +775,13 @@ impl NavigatorEBM {
     }
 
     /// Find targets within a cone aperture.
-    pub fn targets_in_cone(
-        &self,
-        coords: &SphericalCoords,
-        cone: &ConeConfig,
-    ) -> Vec<usize> {
-        let theta_data: Vec<f32> = coords.theta.clone().into_data().to_vec().expect("theta to vec");
+    pub fn targets_in_cone(&self, coords: &SphericalCoords, cone: &ConeConfig) -> Vec<usize> {
+        let theta_data: Vec<f32> = coords
+            .theta
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("theta to vec");
         let phi_data: Vec<f32> = coords.phi.clone().into_data().to_vec().expect("phi to vec");
 
         let n = theta_data.len();
@@ -831,7 +833,11 @@ impl NavigatorEBM {
 
         // Sort by energy (ascending = lowest first = best matches)
         let energy_data: Vec<f32> = energies.into_data().to_vec().expect("energies to vec");
-        let mut indexed: Vec<(usize, f32)> = energy_data.iter().enumerate().map(|(i, &e)| (i, e)).collect();
+        let mut indexed: Vec<(usize, f32)> = energy_data
+            .iter()
+            .enumerate()
+            .map(|(i, &e)| (i, e))
+            .collect();
         indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Take top-k
@@ -1014,7 +1020,11 @@ impl NavigatorEBM {
         );
 
         // If hard selection, return argmax; otherwise return weighted average index
-        let weights_data: Vec<f32> = weights.clone().into_data().to_vec().expect("weights to vec");
+        let weights_data: Vec<f32> = weights
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("weights to vec");
 
         let selected_idx = if hard {
             // Find index of maximum weight
@@ -1405,8 +1415,13 @@ impl MultiConeNavigator {
         key: RngKey,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Self {
-        let roots =
-            RootsIndex::from_sphere_ebm_with_bytes(sphere_ebm, raw_bytes, roots_config, key, device);
+        let roots = RootsIndex::from_sphere_ebm_with_bytes(
+            sphere_ebm,
+            raw_bytes,
+            roots_config,
+            key,
+            device,
+        );
         let navigator = NavigatorEBM::from_sphere_ebm(sphere_ebm.clone());
         Self::new(navigator, roots, budget_config)
     }
@@ -1489,7 +1504,7 @@ impl MultiConeNavigator {
                 // Compute center position (use partition centroid or default)
                 let center = peak.center.unwrap_or((
                     std::f32::consts::PI / 2.0, // Default theta (equator)
-                    0.0,                         // Default phi
+                    0.0,                        // Default phi
                 ));
 
                 // Compute aperture: narrower for concentrated peaks
@@ -1636,7 +1651,9 @@ impl MultiConeNavigator {
         // Handle case where no cones were spawned
         if self.active_cones.is_empty() {
             // Fall back to global navigation without cones
-            let result = self.navigator.navigate(query, query_radius, key, top_k, device);
+            let result = self
+                .navigator
+                .navigate(query, query_radius, key, top_k, device);
             return MultiConeResult {
                 target_indices: result.target_indices.clone(),
                 target_energies: result.target_energies.clone(),
@@ -1698,11 +1715,7 @@ impl MultiConeNavigator {
     pub fn last_navigation_stats(&self) -> NavigationStats {
         NavigationStats {
             cones_spawned: self.active_cones.len(),
-            budget_allocated: self
-                .active_cones
-                .iter()
-                .map(|c| c.budget_bytes)
-                .sum(),
+            budget_allocated: self.active_cones.iter().map(|c| c.budget_bytes).sum(),
             total_relevance: self.active_cones.iter().map(|c| c.relevance).sum(),
             saturated_cones: self.active_cones.iter().filter(|c| c.is_saturated).count(),
         }
@@ -1738,9 +1751,9 @@ impl std::fmt::Display for NavigationStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ScaleProfile;
     use burn::tensor::Distribution;
     use thrml_core::backend::init_gpu_device;
-    use crate::config::ScaleProfile;
 
     #[test]
     fn test_navigator_creation() {
@@ -1774,15 +1787,18 @@ mod tests {
         let navigator = NavigatorEBM::new(embeddings.clone(), prominence, None, config, &device);
 
         // Query with first embedding
-        let query: Tensor<WgpuBackend, 1> = embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> =
+            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
         let targets = vec![0, 1, 2];
 
         let energy = navigator.semantic_energy(&query, &targets, &device);
         let energy_data: Vec<f32> = energy.into_data().to_vec().expect("energy to vec");
 
         // Self-similarity should have lowest energy
-        assert!(energy_data[0] < energy_data[1] || energy_data[0] < energy_data[2],
-            "Self-similarity should have low energy");
+        assert!(
+            energy_data[0] < energy_data[1] || energy_data[0] < energy_data[2],
+            "Self-similarity should have low energy"
+        );
     }
 
     #[test]
@@ -1808,8 +1824,10 @@ mod tests {
         assert_eq!(result.target_energies.len(), 5);
         // Energies should be sorted ascending
         for i in 1..result.target_energies.len() {
-            assert!(result.target_energies[i] >= result.target_energies[i - 1],
-                "Energies should be sorted ascending");
+            assert!(
+                result.target_energies[i] >= result.target_energies[i - 1],
+                "Energies should be sorted ascending"
+            );
         }
     }
 
@@ -1854,7 +1872,10 @@ mod tests {
 
         // Should have some targets in the cone
         assert!(!targets.is_empty(), "Cone should contain some targets");
-        assert!(targets.len() <= n, "Cannot have more targets than total points");
+        assert!(
+            targets.len() <= n,
+            "Cannot have more targets than total points"
+        );
     }
 
     #[test]
@@ -1884,7 +1905,7 @@ mod tests {
             50.0,
             &coords,
             &candidates,
-            1.0,  // Temperature
+            1.0,   // Temperature
             false, // Soft selection
             &device,
         );
@@ -1940,12 +1961,8 @@ mod tests {
         sidecar.add_edge(5, 10, 0.5);
         sidecar.add_edge(10, 15, 0.5);
 
-        let hypergraph_ebm = crate::hypergraph::HypergraphEBM::from_sidecar(
-            &sidecar,
-            0.1,
-            0.3,
-            &device,
-        );
+        let hypergraph_ebm =
+            crate::hypergraph::HypergraphEBM::from_sidecar(&sidecar, 0.1, 0.3, &device);
 
         let config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
         let navigator = NavigatorEBM::new(embeddings.clone(), prominence, None, config, &device)
@@ -1958,9 +1975,9 @@ mod tests {
         let result = navigator.navigate_differentiable(
             query,
             50.0,
-            0,     // Start at node 0
-            5,     // Max 5 steps
-            0.5,   // Temperature
+            0,   // Start at node 0
+            5,   // Max 5 steps
+            0.5, // Temperature
             RngKey::new(42),
             &device,
         );
@@ -2148,11 +2165,10 @@ mod tests {
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
 
         let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
-        let sphere_ebm = SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
+        let sphere_ebm =
+            SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
 
-        let roots_config = RootsConfig::dev()
-            .with_partitions(4)
-            .with_threshold(0.1); // Lower threshold to detect peaks
+        let roots_config = RootsConfig::dev().with_partitions(4).with_threshold(0.1); // Lower threshold to detect peaks
 
         let budget_config = BudgetConfig::dev();
 
@@ -2168,13 +2184,7 @@ mod tests {
         let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
 
         // Run multi-cone navigation
-        let result = navigator.navigate_multi_cone(
-            query,
-            50.0,
-            5,
-            RngKey::new(123),
-            &device,
-        );
+        let result = navigator.navigate_multi_cone(query, 50.0, 5, RngKey::new(123), &device);
 
         // Should have results
         assert!(!result.is_empty(), "Should have navigation results");
@@ -2187,8 +2197,11 @@ mod tests {
             );
         }
 
-        println!("Multi-cone results: {} targets from {} cones",
-            result.n_targets(), result.n_cones());
+        println!(
+            "Multi-cone results: {} targets from {} cones",
+            result.n_targets(),
+            result.n_cones()
+        );
     }
 
     #[test]
@@ -2203,7 +2216,8 @@ mod tests {
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
 
         let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
-        let sphere_ebm = SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
+        let sphere_ebm =
+            SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
 
         let roots_config = RootsConfig::dev().with_partitions(4);
         let budget_config = BudgetConfig::dev();
@@ -2247,18 +2261,16 @@ mod tests {
                 emb_data[i * d + j] = (cluster as f32 * 0.5) + ((i * j) as f32 * 0.01).sin() * 0.1;
             }
         }
-        let embeddings_1d: Tensor<WgpuBackend, 1> =
-            Tensor::from_data(emb_data.as_slice(), &device);
+        let embeddings_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(emb_data.as_slice(), &device);
         let embeddings: Tensor<WgpuBackend, 2> = embeddings_1d.reshape([n as i32, d as i32]);
         let prominence: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
 
         let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
-        let sphere_ebm = SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
+        let sphere_ebm =
+            SphereEBM::new(embeddings.clone(), prominence, None, sphere_config, &device);
 
-        let roots_config = RootsConfig::dev()
-            .with_partitions(8)
-            .with_threshold(0.1);
+        let roots_config = RootsConfig::dev().with_partitions(8).with_threshold(0.1);
 
         let budget_config = BudgetConfig::new(1024 * 1024 * 1024) // 1GB
             .with_max_cones(8)
@@ -2294,9 +2306,11 @@ mod tests {
                 );
             }
 
-            println!("Spawned {} cones with total budget {} MB",
+            println!(
+                "Spawned {} cones with total budget {} MB",
                 cones.len(),
-                total_budget / (1024 * 1024));
+                total_budget / (1024 * 1024)
+            );
         }
     }
 }

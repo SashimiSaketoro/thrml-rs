@@ -307,4 +307,3 @@ mod tests {
         assert_eq!(config.min_length, 8);
     }
 }
-

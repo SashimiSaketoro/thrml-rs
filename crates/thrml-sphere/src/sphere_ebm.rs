@@ -114,12 +114,7 @@ impl SphereEBM {
         let n = self.n_points();
 
         // Initial radii from embedding L2 norms
-        let init_radii_2d = self
-            .embeddings
-            .clone()
-            .powf_scalar(2.0)
-            .sum_dim(1)
-            .sqrt();
+        let init_radii_2d = self.embeddings.clone().powf_scalar(2.0).sum_dim(1).sqrt();
         // Reshape from [N, 1] to [N]
         let init_radii: Tensor<WgpuBackend, 1> = init_radii_2d.reshape([n as i32]);
 
@@ -294,28 +289,25 @@ mod tests {
     #[test]
     fn test_compute_ideal_radii_ordering() {
         let device = init_gpu_device();
-        
+
         // Create prominence values
-        let prominence: Tensor<WgpuBackend, 1> = 
+        let prominence: Tensor<WgpuBackend, 1> =
             Tensor::from_data([0.1, 0.5, 0.9, 0.3, 0.7].as_slice(), &device);
 
-        let radii = compute_ideal_radii(
-            &prominence,
-            None,
-            10.0,
-            100.0,
-            false,
-            &device,
-        );
+        let radii = compute_ideal_radii(&prominence, None, 10.0, 100.0, false, &device);
 
         let radii_data: Vec<f32> = radii.into_data().to_vec().expect("radii to vec");
 
         // Index 2 (prom=0.9) should have smallest radius
         // Index 0 (prom=0.1) should have largest radius
-        assert!(radii_data[2] < radii_data[0], 
-            "Higher prominence should have smaller radius");
-        assert!(radii_data[4] < radii_data[3],
-            "prom=0.7 should have smaller radius than prom=0.3");
+        assert!(
+            radii_data[2] < radii_data[0],
+            "Higher prominence should have smaller radius"
+        );
+        assert!(
+            radii_data[4] < radii_data[3],
+            "prom=0.7 should have smaller radius than prom=0.3"
+        );
     }
 
     #[test]
@@ -324,9 +316,9 @@ mod tests {
         let n = 20;
         let d = 64;
 
-        let embeddings: Tensor<WgpuBackend, 2> = 
+        let embeddings: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        let prominence: Tensor<WgpuBackend, 1> = 
+        let prominence: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(0.0, 1.0), &device);
 
         let config = SphereConfig::default();
@@ -344,20 +336,19 @@ mod tests {
         let n = 10;
         let d = 8;
 
-        let embeddings: Tensor<WgpuBackend, 2> = 
+        let embeddings: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        let prominence: Tensor<WgpuBackend, 1> = 
+        let prominence: Tensor<WgpuBackend, 1> =
             Tensor::random([n], Distribution::Uniform(0.0, 1.0), &device);
 
-        let config = SphereConfig::from(crate::config::ScaleProfile::Dev)
-            .with_steps(10); // Fast for testing
+        let config = SphereConfig::from(crate::config::ScaleProfile::Dev).with_steps(10); // Fast for testing
         let ebm = SphereEBM::new(embeddings, prominence, None, config, &device);
 
         let key = RngKey::new(42);
         let coords = ebm.optimize(key, &device);
 
         assert_eq!(coords.len(), n);
-        
+
         // Check radii are positive
         let r_data: Vec<f32> = coords.r.into_data().to_vec().expect("r to vec");
         for r in r_data {
@@ -365,4 +356,3 @@ mod tests {
         }
     }
 }
-

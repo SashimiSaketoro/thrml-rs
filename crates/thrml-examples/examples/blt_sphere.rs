@@ -24,9 +24,9 @@
 //! - `phi`: [N] - Azimuthal angles
 //! - `cartesian`: [N, 3] - Cartesian coordinates
 
-use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
+use std::path::PathBuf;
 use thrml_core::backend::{ensure_backend, init_gpu_device};
 use thrml_samplers::RngKey;
 use thrml_sphere::{load_from_safetensors, save_coords_npz, ScaleProfile, SphereConfig};
@@ -75,23 +75,24 @@ fn main() -> Result<()> {
     println!("GPU device initialized");
 
     // Parse scale profile
-    let profile = ScaleProfile::from_str(&args.scale)
-        .unwrap_or_else(|| {
-            eprintln!("Warning: Unknown scale '{}', using 'dev'", args.scale);
-            ScaleProfile::Dev
-        });
-    
+    let profile = ScaleProfile::from_str(&args.scale).unwrap_or_else(|| {
+        eprintln!("Warning: Unknown scale '{}', using 'dev'", args.scale);
+        ScaleProfile::Dev
+    });
+
     // Build configuration
-    let mut config = SphereConfig::from(profile)
-        .with_entropy_weighted(args.entropy_weighted);
-    
+    let mut config = SphereConfig::from(profile).with_entropy_weighted(args.entropy_weighted);
+
     if let Some(steps) = args.steps {
         config = config.with_steps(steps);
     }
 
     println!("Configuration:");
     println!("  Scale: {:?}", profile);
-    println!("  Radius range: [{}, {}]", config.min_radius, config.max_radius);
+    println!(
+        "  Radius range: [{}, {}]",
+        config.min_radius, config.max_radius
+    );
     println!("  Steps: {}", config.n_steps);
     println!("  Temperature: {}", config.temperature);
     println!("  Entropy weighted: {}", config.entropy_weighted);
@@ -100,16 +101,17 @@ fn main() -> Result<()> {
     // Load data
     println!("Loading from {:?}...", args.input);
     let ebm = load_from_safetensors(&args.input, config, &device)?;
-    
-    println!("Loaded {} points with {} dimensions\n", 
-        ebm.n_points(), 
+
+    println!(
+        "Loaded {} points with {} dimensions\n",
+        ebm.n_points(),
         ebm.embedding_dim()
     );
 
     // Run optimization
     println!("Running sphere optimization...");
     let key = RngKey::new(args.seed);
-    
+
     let coords = if args.log_interval > 0 {
         ebm.optimize_with_logging(key, &device, args.log_interval)
     } else {
@@ -123,14 +125,17 @@ fn main() -> Result<()> {
     let r_mean = r_data.iter().sum::<f32>() / r_data.len() as f32;
 
     println!("\nOptimization complete!");
-    println!("  Radius stats: min={:.2}, max={:.2}, mean={:.2}", r_min, r_max, r_mean);
+    println!(
+        "  Radius stats: min={:.2}, max={:.2}, mean={:.2}",
+        r_min, r_max, r_mean
+    );
 
     // Save output
     println!("\nSaving to {:?}...", args.output);
     save_coords_npz(&coords, &args.output)?;
 
     println!("\nDone! Output saved to {:?}", args.output);
-    
+
     Ok(())
 }
 
@@ -145,5 +150,3 @@ mod tests {
         assert!(ScaleProfile::from_str("invalid").is_none());
     }
 }
-
-

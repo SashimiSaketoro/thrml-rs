@@ -36,14 +36,18 @@ use std::path::PathBuf;
 use thrml_core::backend::{ensure_backend, init_gpu_device};
 use thrml_samplers::RngKey;
 use thrml_sphere::{
-    evaluate_navigator, generate_pairs_from_similarity, load_blt_safetensors, load_from_safetensors,
-    ExtendedTrainingConfig, NavigatorTrainingConfig, ScaleProfile, SphereConfig,
-    TrainableNavigatorEBM, TrainingDataset,
+    evaluate_navigator, generate_pairs_from_similarity, load_blt_safetensors,
+    load_from_safetensors, ExtendedTrainingConfig, NavigatorTrainingConfig, ScaleProfile,
+    SphereConfig, TrainableNavigatorEBM, TrainingDataset,
 };
 
 #[derive(Parser)]
 #[command(name = "train_navigator")]
-#[command(author, version, about = "Train a NavigatorEBM with evaluation metrics")]
+#[command(
+    author,
+    version,
+    about = "Train a NavigatorEBM with evaluation metrics"
+)]
 struct Args {
     /// BLT v3 SafeTensors file (contains embeddings + bytes together)
     #[arg(long)]

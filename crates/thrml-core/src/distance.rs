@@ -8,8 +8,8 @@
 //!
 //! These are general-purpose utilities used across many models.
 
-use burn::tensor::Tensor;
 use crate::backend::WgpuBackend;
+use burn::tensor::Tensor;
 
 /// Compute pairwise squared Euclidean distances.
 ///
@@ -34,13 +34,11 @@ use crate::backend::WgpuBackend;
 /// let positions: Tensor<WgpuBackend, 2> = /* [N, D] */;
 /// let dist_sq = pairwise_distances_sq(&positions);
 /// ```
-pub fn pairwise_distances_sq(
-    positions: &Tensor<WgpuBackend, 2>,
-) -> Tensor<WgpuBackend, 2> {
+pub fn pairwise_distances_sq(positions: &Tensor<WgpuBackend, 2>) -> Tensor<WgpuBackend, 2> {
     // ||pos[i] - pos[j]||^2 = ||pos[i]||^2 + ||pos[j]||^2 - 2 * dot(pos[i], pos[j])
     // sum_dim(1) on [N, D] returns [N, 1] in Burn 0.19
     let sq_norms = positions.clone().powf_scalar(2.0).sum_dim(1); // [N, 1]
-    
+
     // For broadcasting: need [N, 1] + [1, N] -> [N, N]
     // sq_norms is already [N, 1], transpose to get [1, N]
     let sq_norms_row = sq_norms.clone(); // [N, 1]
@@ -58,9 +56,7 @@ pub fn pairwise_distances_sq(
 ///
 /// # Returns
 /// Distance matrix [N, N]
-pub fn pairwise_distances(
-    positions: &Tensor<WgpuBackend, 2>,
-) -> Tensor<WgpuBackend, 2> {
+pub fn pairwise_distances(positions: &Tensor<WgpuBackend, 2>) -> Tensor<WgpuBackend, 2> {
     pairwise_distances_sq(positions).sqrt()
 }
 
@@ -84,10 +80,7 @@ pub fn pairwise_distances(
 /// let dist_sq = pairwise_distances_sq(&positions);
 /// let kernel = gaussian_kernel(&dist_sq, 1.0);
 /// ```
-pub fn gaussian_kernel(
-    dist_sq: &Tensor<WgpuBackend, 2>,
-    sigma: f32,
-) -> Tensor<WgpuBackend, 2> {
+pub fn gaussian_kernel(dist_sq: &Tensor<WgpuBackend, 2>, sigma: f32) -> Tensor<WgpuBackend, 2> {
     let sigma2 = sigma * sigma;
     (-dist_sq.clone() / (2.0 * sigma2)).exp()
 }
@@ -104,78 +97,81 @@ pub fn gaussian_kernel(
 ///
 /// # Returns
 /// Laplacian kernel matrix [N, N]
-pub fn laplacian_kernel(
-    dist: &Tensor<WgpuBackend, 2>,
-    sigma: f32,
-) -> Tensor<WgpuBackend, 2> {
+pub fn laplacian_kernel(dist: &Tensor<WgpuBackend, 2>, sigma: f32) -> Tensor<WgpuBackend, 2> {
     (-dist.clone() / sigma).exp()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::tensor::Distribution;
     use crate::backend::init_gpu_device;
+    use burn::tensor::Distribution;
 
     #[test]
     fn test_pairwise_distances_symmetric() {
         let device = init_gpu_device();
         let n = 5;
         let d = 3;
-        
-        let positions: Tensor<WgpuBackend, 2> = 
+
+        let positions: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let dist = pairwise_distances(&positions);
         let dist_data: Vec<f32> = dist.into_data().to_vec().expect("dist to vec");
-        
+
         // Check symmetry
         for i in 0..n {
             for j in 0..n {
                 let d_ij = dist_data[i * n + j];
                 let d_ji = dist_data[j * n + i];
-                assert!((d_ij - d_ji).abs() < 1e-5, "Distance matrix should be symmetric");
+                assert!(
+                    (d_ij - d_ji).abs() < 1e-5,
+                    "Distance matrix should be symmetric"
+                );
             }
         }
     }
-    
+
     #[test]
     fn test_pairwise_distances_diagonal_zero() {
         let device = init_gpu_device();
         let n = 5;
         let d = 3;
-        
-        let positions: Tensor<WgpuBackend, 2> = 
+
+        let positions: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let dist = pairwise_distances(&positions);
         let dist_data: Vec<f32> = dist.into_data().to_vec().expect("dist to vec");
-        
+
         // Check diagonal is zero
         for i in 0..n {
             let diag = dist_data[i * n + i];
             assert!(diag.abs() < 1e-5, "Diagonal should be zero, got {}", diag);
         }
     }
-    
+
     #[test]
     fn test_gaussian_kernel_diagonal_one() {
         let device = init_gpu_device();
         let n = 5;
         let d = 3;
-        
-        let positions: Tensor<WgpuBackend, 2> = 
+
+        let positions: Tensor<WgpuBackend, 2> =
             Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
-        
+
         let dist_sq = pairwise_distances_sq(&positions);
         let kernel = gaussian_kernel(&dist_sq, 1.0);
         let kernel_data: Vec<f32> = kernel.into_data().to_vec().expect("kernel to vec");
-        
+
         // Check diagonal is 1 (exp(0) = 1)
         for i in 0..n {
             let diag = kernel_data[i * n + i];
-            assert!((diag - 1.0).abs() < 1e-5, "Diagonal should be 1, got {}", diag);
+            assert!(
+                (diag - 1.0).abs() < 1e-5,
+                "Diagonal should be 1, got {}",
+                diag
+            );
         }
     }
 }
-

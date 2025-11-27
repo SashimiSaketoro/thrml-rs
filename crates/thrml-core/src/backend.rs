@@ -145,6 +145,7 @@ pub fn is_cpu_available() -> bool {
 
 /// Get available backend names
 pub fn available_backends() -> Vec<&'static str> {
+    #[allow(unused_mut)]
     let mut backends = Vec::new();
 
     #[cfg(feature = "gpu")]

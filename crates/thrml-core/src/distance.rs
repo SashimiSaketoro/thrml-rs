@@ -147,11 +147,7 @@ mod tests {
         // Check diagonal is approximately zero (GPU floating-point precision)
         for i in 0..n {
             let diag = dist_data[i * n + i];
-            assert!(
-                diag.abs() < 1e-3,
-                "Diagonal should be ~zero, got {}",
-                diag
-            );
+            assert!(diag.abs() < 1e-3, "Diagonal should be ~zero, got {}", diag);
         }
     }
 

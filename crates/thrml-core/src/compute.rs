@@ -408,11 +408,11 @@ impl PrecisionMode {
     pub fn should_renormalize(&self, step: usize) -> bool {
         match self {
             PrecisionMode::GpuFast => false,
-            PrecisionMode::CpuPrecise => step % 1000 == 0,
+            PrecisionMode::CpuPrecise => step.is_multiple_of(1000),
             PrecisionMode::Adaptive {
                 langevin_renorm_interval,
                 ..
-            } => step % langevin_renorm_interval == 0,
+            } => step.is_multiple_of(*langevin_renorm_interval),
         }
     }
 }

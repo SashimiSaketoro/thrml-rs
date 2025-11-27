@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, sphere]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -10,173 +10,85 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  check:
-    name: Check
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        rust: [stable, 1.89.0]  # Burn 0.19 MSRV is 1.89
+  check-linux:
+    name: Check (Linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust ${{ matrix.rust }}
-        run: |
-          rustup toolchain install ${{ matrix.rust }} --profile minimal
-          rustup default ${{ matrix.rust }}
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            macos-cargo-${{ matrix.rust }}-
-      
-      - name: Check (no GPU)
-        run: cargo check --workspace --no-default-features
-      
-      - name: Check (with GPU)
-        run: cargo check --workspace --features gpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --no-default-features
 
   test:
-    name: Test
-    runs-on: macos-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Run tests (CPU only)
-        run: cargo test --workspace --no-default-features
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --no-default-features
 
   test-gpu:
     name: GPU Tests (Metal)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-gpu-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Run GPU tests
-        run: cargo test --workspace --features gpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --features gpu
 
   clippy:
-    name: Clippy
-    runs-on: macos-latest
+    name: Clippy (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            features: --no-default-features
+          - name: macOS-GPU
+            os: macos-latest
+            features: --features gpu
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Clippy (no GPU)
-        run: cargo clippy --workspace --no-default-features -- -D warnings
-      
-      - name: Clippy (with GPU)
-        run: cargo clippy --workspace --features gpu -- -D warnings
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace ${{ matrix.features }} -- -D warnings
 
   fmt:
     name: Format
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - run: cargo fmt --all -- --check
 
   docs:
     name: Documentation
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build docs
-        run: cargo doc --workspace --no-deps --no-default-features
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps --no-default-features
         env:
           RUSTDOCFLAGS: -D warnings
 
   examples:
-    name: Examples
+    name: Examples (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: macos-cargo-examples-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build examples
-        run: cargo build --package thrml-examples --examples --features gpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --package thrml-examples --examples --features gpu

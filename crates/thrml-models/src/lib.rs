@@ -54,6 +54,24 @@
 //! - [`ising::estimate_moments`]: Estimate first/second moments via sampling
 //! - [`ising::estimate_kl_grad`]: Estimate KL divergence gradients
 //! - [`ising::hinton_init`]: Initialize states from marginal biases
+//!
+//! ## Hybrid Compute Backend
+//!
+//! Re-exports from `thrml-core` for CPU/GPU precision routing:
+//!
+//! - [`ComputeBackend`]: CPU/GPU/Hybrid backend selection
+//! - [`OpType`]: Operation classification for routing
+//! - [`PrecisionMode`]: Precision mode selection
+//! - [`HybridConfig`]: Full hybrid compute configuration
+//!
+//! ```rust,ignore
+//! use thrml_models::{ComputeBackend, OpType};
+//!
+//! let backend = ComputeBackend::apple_silicon();
+//! if backend.use_cpu(OpType::IsingSampling, None) {
+//!     // Use CPU f64 path for precision
+//! }
+//! ```
 
 #![recursion_limit = "256"] // Required for burn-wgpu
 
@@ -72,3 +90,6 @@ pub use factor::*;
 pub use graph_ebm::*;
 pub use graph_utils::*;
 pub use ising::*;
+
+// Re-export compute types from thrml-core for precision routing
+pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};

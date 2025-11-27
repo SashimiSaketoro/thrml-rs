@@ -32,6 +32,19 @@
 //! let schedule = SamplingSchedule::new(100, 1000, 5);
 //! // 100 warmup steps, 1000 samples, 5 steps between samples
 //! ```
+//!
+//! ## Hybrid Compute Backend
+//!
+//! Re-exports from `thrml-core` for CPU/GPU precision routing:
+//!
+//! ```rust,ignore
+//! use thrml_samplers::{ComputeBackend, PrecisionMode};
+//!
+//! let mode = PrecisionMode::default();
+//! if mode.should_renormalize(step) {
+//!     // Re-normalize Langevin particles for numerical stability
+//! }
+//! ```
 
 #![recursion_limit = "256"] // Required for burn-wgpu
 
@@ -56,3 +69,6 @@ pub use sampling::*;
 pub use schedule::*;
 pub use softmax::*;
 pub use spin_gibbs::*;
+
+// Re-export compute types from thrml-core for precision routing
+pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};

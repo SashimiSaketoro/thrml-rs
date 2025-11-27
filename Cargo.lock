@@ -4013,6 +4013,7 @@ dependencies = [
  "clap",
  "directories",
  "indexmap",
+ "num_cpus",
  "once_cell",
  "ordered-float 4.6.0",
  "serde",

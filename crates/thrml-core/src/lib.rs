@@ -33,6 +33,7 @@
 pub mod backend;
 pub mod block;
 pub mod blockspec;
+pub mod compute;
 pub mod config;
 pub mod distance;
 pub mod interaction;
@@ -44,6 +45,7 @@ pub mod state_tree;
 pub use backend::*;
 pub use block::*;
 pub use blockspec::*;
+pub use compute::*;
 pub use config::*;
 pub use distance::*;
 pub use interaction::*;

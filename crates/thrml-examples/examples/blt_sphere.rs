@@ -119,7 +119,12 @@ fn main() -> Result<()> {
     };
 
     // Print summary statistics
-    let r_data: Vec<f32> = coords.r.clone().into_data().to_vec()?;
+    let r_data: Vec<f32> = coords
+        .r
+        .clone()
+        .into_data()
+        .to_vec()
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
     let r_min = r_data.iter().cloned().fold(f32::INFINITY, f32::min);
     let r_max = r_data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let r_mean = r_data.iter().sum::<f32>() / r_data.len() as f32;

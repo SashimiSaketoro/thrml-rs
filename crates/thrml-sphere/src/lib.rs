@@ -1,3 +1,12 @@
+// Clippy allows for experimental/research crate
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::manual_memcpy)]
+#![allow(clippy::get_first)]
+#![allow(clippy::clone_on_copy)]
+#![allow(irrefutable_let_patterns)]
+
 //! # thrml-sphere
 //!
 //! Hyperspherical embedding optimization, ROOTS indexing, and multi-cone navigation

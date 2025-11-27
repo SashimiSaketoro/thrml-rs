@@ -226,11 +226,9 @@ pub fn sample_and_compare_distribution<E: AbstractEBM>(
                 NodeType::Spin => all_binary_nodes.push(node.clone()),
                 NodeType::Categorical { .. } => all_cat_nodes.push(node.clone()),
                 NodeType::Continuous => {
-                    // Continuous nodes are not supported in discrete EBM tests
                     panic!("Continuous nodes not supported in discrete EBM tests")
                 }
                 NodeType::Spherical { .. } => {
-                    // Spherical nodes are not supported in discrete EBM tests
                     panic!("Spherical nodes not supported in discrete EBM tests")
                 }
             }

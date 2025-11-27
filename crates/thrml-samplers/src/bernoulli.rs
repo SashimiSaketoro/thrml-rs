@@ -59,6 +59,10 @@ impl AbstractConditionalSampler for BernoulliConditional {
                     // Quadratic interactions are for continuous variables, not spin
                     // Skip for Bernoulli sampler
                 }
+                InteractionData::Sphere { .. } => {
+                    // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                    // Skip for Bernoulli sampler
+                }
             }
         }
 

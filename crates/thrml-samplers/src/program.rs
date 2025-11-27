@@ -256,6 +256,15 @@ impl BlockSamplingProgram {
                                 inverse_weights: sliced,
                             }
                         }
+                        InteractionData::Sphere { ideal_radii, similarity, interaction_radius } => {
+                            // Sphere interactions are for Langevin dynamics, not Gibbs sampling
+                            // Pass through unchanged since they shouldn't be used in BlockSamplingProgram
+                            InteractionData::Sphere {
+                                ideal_radii: ideal_radii.clone(),
+                                similarity: similarity.clone(),
+                                interaction_radius: *interaction_radius,
+                            }
+                        }
                     };
 
                     // Create active tensor (2D Bool tensor converted to Float for compatibility)

@@ -36,10 +36,25 @@ path = "examples/full_api_walkthrough.rs"
 name = "train_mnist"
 path = "examples/train_mnist.rs"
 
+[[example]]
+name = "gaussian_pgm"
+path = "examples/gaussian_pgm.rs"
+
+[[example]]
+name = "gaussian_bernoulli_ebm"
+path = "examples/gaussian_bernoulli_ebm.rs"
+
+[[example]]
+name = "blt_sphere"
+path = "examples/blt_sphere.rs"
+
 [dependencies]
 thrml-core = { path = "../thrml-core" }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-models = { path = "../thrml-models" }
+thrml-sphere = { path = "../thrml-sphere" }
+safetensors = "0.4"
+anyhow = "1.0"
 burn = { version = "0.19", default-features = false }
 
 # Visualization and graph libraries
@@ -61,6 +76,7 @@ gpu = [
     "thrml-core/gpu",
     "thrml-samplers/gpu",
     "thrml-models/gpu",
+    "thrml-sphere/gpu",
     "burn/wgpu",
 ]
 fused-kernels = [

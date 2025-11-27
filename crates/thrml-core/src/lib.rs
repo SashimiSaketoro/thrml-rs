@@ -5,11 +5,17 @@
 //! This crate provides foundational types for building probabilistic graphical models:
 //!
 //! - [`Node`]: Represents a random variable in the graph
-//! - [`NodeType`]: Spin (binary ±1), Categorical, or Continuous variables
+//! - [`NodeType`]: Spin (binary ±1), Categorical, Continuous, or Spherical variables
 //! - [`Block`]: A collection of nodes of the same type
 //! - [`BlockSpec`]: Specification for mapping between local and global state
 //! - [`InteractionGroup`]: Defines interactions between node groups
-//! - [`InteractionData`]: Tensor, Linear, or Quadratic interaction parameters
+//! - [`InteractionData`]: Tensor, Linear, Quadratic, or Sphere interaction parameters
+//!
+//! ## GPU Utilities
+//!
+//! - [`distance`]: Pairwise distance and kernel computations
+//! - [`similarity`]: Cosine similarity and sparse representations
+//! - [`spherical`]: Spherical coordinate utilities
 //!
 //! ## GPU Backend
 //!
@@ -28,14 +34,20 @@ pub mod backend;
 pub mod block;
 pub mod blockspec;
 pub mod config;
+pub mod distance;
 pub mod interaction;
 pub mod node;
+pub mod similarity;
+pub mod spherical;
 pub mod state_tree;
 
 pub use backend::*;
 pub use block::*;
 pub use blockspec::*;
 pub use config::*;
+pub use distance::*;
 pub use interaction::*;
 pub use node::*;
+pub use similarity::*;
+pub use spherical::*;
 pub use state_tree::*;

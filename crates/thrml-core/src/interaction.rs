@@ -23,6 +23,19 @@ pub enum InteractionData {
     Quadratic {
         inverse_weights: Tensor<WgpuBackend, 2>,
     },
+
+    /// Sphere-specific interaction for water-filling optimization.
+    ///
+    /// Used by thrml-sphere for placing embeddings on a hypersphere.
+    /// Contains precomputed similarity matrix and ideal radii.
+    Sphere {
+        /// Ideal radii from prominence ranking \[N\].
+        ideal_radii: Tensor<WgpuBackend, 1>,
+        /// Cosine similarity matrix \[N, N\].
+        similarity: Tensor<WgpuBackend, 2>,
+        /// Gaussian interaction radius for lateral forces.
+        interaction_radius: f32,
+    },
 }
 
 impl InteractionData {
@@ -32,6 +45,7 @@ impl InteractionData {
             InteractionData::Tensor(t) => t.dims()[0],
             InteractionData::Linear { weights } => weights.dims()[0],
             InteractionData::Quadratic { inverse_weights } => inverse_weights.dims()[0],
+            InteractionData::Sphere { ideal_radii, .. } => ideal_radii.dims()[0],
         }
     }
 
@@ -50,10 +64,27 @@ impl InteractionData {
         matches!(self, InteractionData::Quadratic { .. })
     }
 
+    /// Check if this is a sphere interaction.
+    pub fn is_sphere(&self) -> bool {
+        matches!(self, InteractionData::Sphere { .. })
+    }
+
     /// Get the underlying tensor if this is a Tensor variant.
     pub fn as_tensor(&self) -> Option<&Tensor<WgpuBackend, 3>> {
         match self {
             InteractionData::Tensor(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Get sphere interaction data if this is a Sphere variant.
+    pub fn as_sphere(&self) -> Option<(&Tensor<WgpuBackend, 1>, &Tensor<WgpuBackend, 2>, f32)> {
+        match self {
+            InteractionData::Sphere {
+                ideal_radii,
+                similarity,
+                interaction_radius,
+            } => Some((ideal_radii, similarity, *interaction_radius)),
             _ => None,
         }
     }

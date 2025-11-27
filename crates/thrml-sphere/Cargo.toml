@@ -1,0 +1,39 @@
+[package]
+name = "thrml-sphere"
+description = "Sphere optimization for placing embeddings on a hypersphere using Langevin dynamics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/thrml-sphere"
+readme = "README.md"
+keywords = ["machine-learning", "sphere", "embedding", "optimization", "langevin"]
+categories = ["science", "simulation", "mathematics"]
+rust-version.workspace = true
+
+[dependencies]
+thrml-core = { path = "../thrml-core" }
+thrml-samplers = { path = "../thrml-samplers" }
+thrml-models = { path = "../thrml-models" }
+thrml-kernels = { path = "../thrml-kernels", features = ["gpu"] }
+burn = { workspace = true, features = ["wgpu"] }
+burn-wgpu = { version = "0.19", default-features = false, features = ["autotune"] }
+ndarray = "0.16"
+ndarray-npy = "0.9"
+safetensors = "0.4"
+anyhow = "1.0"
+ordered-float = "4.2"
+bytemuck = "1.14"
+num_cpus = "1.16"
+
+[dev-dependencies]
+rand = "0.8"
+tempfile = "3.10"
+
+[features]
+default = ["gpu"]
+gpu = []
+
+

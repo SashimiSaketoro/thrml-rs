@@ -20,11 +20,13 @@ use thrml_core::backend::WgpuBackend;
 /// It is generic over the CubeBackend parameters (Runtime, Float, Int, Bool types).
 ///
 /// # Arguments
-/// * `logits` - Log-probabilities [n_samples, n_categories]
-/// * `uniform` - Pre-generated uniform samples [n_samples, n_categories]
+///
+/// * `logits` - Log-probabilities \[n_samples, n_categories\]
+/// * `uniform` - Pre-generated uniform samples \[n_samples, n_categories\]
 ///
 /// # Returns
-/// Category indices [n_samples] as IntTensor
+///
+/// Category indices \[n_samples\] as IntTensor.
 pub fn launch_gumbel_argmax<R, F, I, BT>(
     logits: FloatTensor<CubeBackend<R, F, I, BT>>,
     uniform: FloatTensor<CubeBackend<R, F, I, BT>>,
@@ -85,17 +87,19 @@ where
     output
 }
 
-/// Execute the fused Gumbel-max argmax kernel.
+/// Executes the fused Gumbel-max argmax kernel.
 ///
 /// This is a convenience function that works with high-level Tensor types
 /// on the default WgpuBackend.
 ///
 /// # Arguments
-/// * `logits` - Log-probabilities [n_samples, n_categories]
-/// * `uniform` - Pre-generated uniform samples [n_samples, n_categories]
+///
+/// * `logits` - Log-probabilities \[n_samples, n_categories\]
+/// * `uniform` - Pre-generated uniform samples \[n_samples, n_categories\]
 ///
 /// # Returns
-/// Category indices [n_samples] as integers
+///
+/// Category indices \[n_samples\] as integers.
 pub fn gumbel_argmax_fused(
     logits: Tensor<WgpuBackend, 2>,
     uniform: Tensor<WgpuBackend, 2>,

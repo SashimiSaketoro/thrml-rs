@@ -1,5 +1,6 @@
 use burn::tensor::DType;
 use once_cell::sync::Lazy;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -11,6 +12,12 @@ pub enum NodeType {
     Categorical { n_categories: u8 },
     /// Continuous variable with float32 state
     Continuous,
+    /// Spherical coordinate node (r, theta, phi) for sphere optimization.
+    /// Used by thrml-sphere for placing embeddings on a hypersphere.
+    Spherical {
+        min_radius: OrderedFloat<f32>,
+        max_radius: OrderedFloat<f32>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -65,6 +72,14 @@ impl TensorSpec {
     pub fn for_continuous() -> Self {
         Self {
             shape: vec![],
+            dtype: DType::F32,
+        }
+    }
+
+    /// TensorSpec for spherical coordinate variables (r, theta, phi)
+    pub fn for_spherical() -> Self {
+        Self {
+            shape: vec![3], // r, theta, phi
             dtype: DType::F32,
         }
     }

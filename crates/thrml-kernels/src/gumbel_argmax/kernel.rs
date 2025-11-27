@@ -39,9 +39,10 @@ use cubecl::{cube, prelude::*};
 /// performs a serial scan over categories.
 ///
 /// # Arguments
-/// * `logits` - Flattened logits tensor [n_samples * n_categories]
-/// * `uniform` - Flattened uniform samples [n_samples * n_categories]
-/// * `output` - Output tensor [n_samples] for category indices (as integers)
+///
+/// * `logits` - Flattened logits tensor \[n_samples * n_categories\]
+/// * `uniform` - Flattened uniform samples \[n_samples * n_categories\]
+/// * `output` - Output tensor \[n_samples\] for category indices (as integers)
 /// * `n_categories` - Number of categories (comptime constant)
 #[cube(launch)]
 pub fn gumbel_argmax_kernel<F: Float, I: Int>(

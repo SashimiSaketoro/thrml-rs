@@ -6,6 +6,7 @@ members = [
     "crates/thrml-observers",
     "crates/thrml-kernels",
     "crates/thrml-examples",
+    "crates/thrml-sphere",
 ]
 resolver = "2"
 

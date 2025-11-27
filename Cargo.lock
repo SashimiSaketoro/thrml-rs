@@ -2941,6 +2941,17 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-float"
+version = "4.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
+dependencies = [
+ "num-traits",
+ "rand 0.8.5",
+ "serde",
+]
+
+[[package]]
+name = "ordered-float"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2c1f9f56e534ac6a9b8a4600bdf0f530fb393b5f393e7b4d03489c3cf0c3f01"
@@ -3319,6 +3330,7 @@ dependencies = [
  "libc",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+ "serde",
 ]
 
 [[package]]
@@ -3358,6 +3370,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.16",
+ "serde",
 ]
 
 [[package]]
@@ -3618,6 +3631,16 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "safetensors"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44560c11236a6130a46ce36c836a62936dc81ebf8c36a37947423571be0e55b6"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "same-file"
@@ -3905,6 +3928,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempfile"
+version = "3.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+dependencies = [
+ "fastrand",
+ "getrandom 0.3.4",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3978,6 +4014,7 @@ dependencies = [
  "directories",
  "indexmap",
  "once_cell",
+ "ordered-float 4.6.0",
  "serde",
  "toml 0.8.23",
 ]
@@ -3986,6 +4023,7 @@ dependencies = [
 name = "thrml-examples"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "burn",
  "clap",
  "indexmap",
@@ -3994,9 +4032,11 @@ dependencies = [
  "petgraph 0.8.3",
  "plotters",
  "rand 0.8.5",
+ "safetensors",
  "thrml-core",
  "thrml-models",
  "thrml-samplers",
+ "thrml-sphere",
 ]
 
 [[package]]
@@ -4051,6 +4091,27 @@ dependencies = [
  "thrml-core",
  "thrml-kernels",
  "thrml-observers",
+]
+
+[[package]]
+name = "thrml-sphere"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "burn",
+ "burn-wgpu",
+ "bytemuck",
+ "ndarray",
+ "ndarray-npy",
+ "num_cpus",
+ "ordered-float 4.6.0",
+ "rand 0.8.5",
+ "safetensors",
+ "tempfile",
+ "thrml-core",
+ "thrml-kernels",
+ "thrml-models",
+ "thrml-samplers",
 ]
 
 [[package]]
@@ -4751,7 +4812,7 @@ dependencies = [
  "naga",
  "ndk-sys",
  "objc",
- "ordered-float",
+ "ordered-float 5.0.0",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",

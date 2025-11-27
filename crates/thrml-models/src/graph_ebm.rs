@@ -306,6 +306,7 @@ impl NodeBiasEBM {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::tensor::Distribution;
     use thrml_core::backend::init_gpu_device;
 
     #[test]
@@ -380,5 +381,312 @@ mod tests {
             force_data[3] < 0.0,
             "Force should attract node 1 toward node 0"
         );
+    }
+
+    // ============================================
+    // Property-Based Random Tests
+    // ============================================
+
+    /// Helper: create a random graph with n nodes and approximately edge_density * n^2 edges
+    fn create_random_graph(n: usize, edge_density: f32) -> GraphSidecar {
+        let mut graph = GraphSidecar::new(n);
+        let mut rng_state = 12345u64; // Simple LCG for deterministic "randomness"
+
+        for i in 0..n {
+            for j in (i + 1)..n {
+                // Simple LCG: next = (a * current + c) mod m
+                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let rand_val = (rng_state >> 33) as f32 / (u32::MAX >> 1) as f32;
+
+                if rand_val < edge_density {
+                    // Random weight between 0.1 and 2.0
+                    rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    let weight = 0.1 + 1.9 * (rng_state >> 33) as f32 / (u32::MAX >> 1) as f32;
+                    graph.add_edge_bidir(i, j, weight);
+                }
+            }
+        }
+        graph
+    }
+
+    #[test]
+    fn test_spring_energy_non_negative_random() {
+        let device = init_gpu_device();
+        let n = 20;
+        let d = 3;
+
+        // Create random graph
+        let graph = create_random_graph(n, 0.3);
+        let ebm = SpringEBM::from_graph(&graph, 1.0, &device);
+
+        // Test with multiple random position configurations
+        for seed in [42, 123, 456, 789, 1000] {
+            let positions: Tensor<WgpuBackend, 2> =
+                Tensor::random([n, d], Distribution::Normal(0.0, 10.0), &device);
+
+            let energy = ebm.total_energy(&positions);
+            assert!(
+                energy >= -1e-5,
+                "Spring energy should be non-negative, got {} (seed={})",
+                energy,
+                seed
+            );
+        }
+    }
+
+    #[test]
+    fn test_spring_energy_zero_at_coincident() {
+        let device = init_gpu_device();
+        let n = 10;
+        let d = 3;
+
+        // Create a connected graph
+        let graph = create_random_graph(n, 0.5);
+        let ebm = SpringEBM::from_graph(&graph, 1.0, &device);
+
+        // All nodes at the same random position
+        let single_point: Tensor<WgpuBackend, 1> =
+            Tensor::random([d], Distribution::Normal(0.0, 5.0), &device);
+        let single_point_data: Vec<f32> = single_point.clone().into_data().to_vec().expect("vec");
+
+        // Repeat for all nodes
+        let mut all_positions = Vec::new();
+        for _ in 0..n {
+            all_positions.extend(single_point_data.iter().cloned());
+        }
+
+        let positions_1d: Tensor<WgpuBackend, 1> =
+            Tensor::from_data(all_positions.as_slice(), &device);
+        let positions = positions_1d.reshape([n as i32, d as i32]);
+
+        let energy = ebm.total_energy(&positions);
+        assert!(
+            energy.abs() < 1e-4,
+            "Energy should be ~0 when all connected nodes are coincident, got {}",
+            energy
+        );
+    }
+
+    #[test]
+    fn test_spring_energy_scales_with_constant() {
+        let device = init_gpu_device();
+        let n = 15;
+        let d = 3;
+
+        let graph = create_random_graph(n, 0.4);
+
+        // Create two EBMs with different spring constants
+        let ebm_k1 = SpringEBM::from_graph(&graph, 1.0, &device);
+        let ebm_k2 = SpringEBM::from_graph(&graph, 2.0, &device);
+        let ebm_k5 = SpringEBM::from_graph(&graph, 5.0, &device);
+
+        // Random positions
+        let positions: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 5.0), &device);
+
+        let e1 = ebm_k1.total_energy(&positions);
+        let e2 = ebm_k2.total_energy(&positions);
+        let e5 = ebm_k5.total_energy(&positions);
+
+        // Energy should scale linearly with spring constant (use relative tolerance)
+        let rel_tol = 1e-5;
+        let rel_err_2 = (e2 - 2.0 * e1).abs() / e1.abs().max(1e-10);
+        let rel_err_5 = (e5 - 5.0 * e1).abs() / e1.abs().max(1e-10);
+
+        assert!(
+            rel_err_2 < rel_tol,
+            "E(k=2) should equal 2*E(k=1): {} vs {}, rel_err={}",
+            e2,
+            2.0 * e1,
+            rel_err_2
+        );
+        assert!(
+            rel_err_5 < rel_tol,
+            "E(k=5) should equal 5*E(k=1): {} vs {}, rel_err={}",
+            e5,
+            5.0 * e1,
+            rel_err_5
+        );
+    }
+
+    #[test]
+    fn test_spring_force_is_negative_gradient() {
+        let device = init_gpu_device();
+        let n = 8;
+        let d = 3;
+
+        let graph = create_random_graph(n, 0.5);
+        let ebm = SpringEBM::from_graph(&graph, 1.0, &device);
+
+        // Random positions
+        let positions: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 3.0), &device);
+        let pos_data: Vec<f32> = positions.clone().into_data().to_vec().expect("pos vec");
+
+        // Compute force
+        let force = ebm.force(&positions);
+        let force_data: Vec<f32> = force.into_data().to_vec().expect("force vec");
+
+        // Compute numerical gradient: -dE/dx using finite differences
+        // Note: total_energy sums per-node energies, which double-counts symmetric edges.
+        // The force formula accounts for this, so we expect force = -0.5 * d(total_energy)/dx
+        let eps = 1e-3;
+        for i in 0..n {
+            for j in 0..d {
+                let idx = i * d + j;
+
+                // E(x + eps)
+                let mut pos_plus = pos_data.clone();
+                pos_plus[idx] += eps;
+                let pos_plus_1d: Tensor<WgpuBackend, 1> =
+                    Tensor::from_data(pos_plus.as_slice(), &device);
+                let pos_plus_2d = pos_plus_1d.reshape([n as i32, d as i32]);
+                let e_plus = ebm.total_energy(&pos_plus_2d);
+
+                // E(x - eps)
+                let mut pos_minus = pos_data.clone();
+                pos_minus[idx] -= eps;
+                let pos_minus_1d: Tensor<WgpuBackend, 1> =
+                    Tensor::from_data(pos_minus.as_slice(), &device);
+                let pos_minus_2d = pos_minus_1d.reshape([n as i32, d as i32]);
+                let e_minus = ebm.total_energy(&pos_minus_2d);
+
+                // Numerical gradient: dE_total/dx = (E+ - E-) / (2*eps)
+                // Due to symmetric adjacency, total_energy double-counts each edge contribution.
+                // The force formula is F = -d(E_node)/dx, so force = -0.5 * d(E_total)/dx
+                let numerical_grad = (e_plus - e_minus) / (2.0 * eps);
+                let expected_force = -0.5 * numerical_grad;
+
+                let actual_force = force_data[idx];
+                let diff = (actual_force - expected_force).abs();
+                let rel_diff = diff / (expected_force.abs().max(0.01));
+
+                assert!(
+                    rel_diff < 0.10, // 10% relative tolerance (accounts for numerical precision)
+                    "Force mismatch at [{},{}]: actual={}, expected={}, rel_diff={}",
+                    i,
+                    j,
+                    actual_force,
+                    expected_force,
+                    rel_diff
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_node_bias_energy_properties() {
+        let device = init_gpu_device();
+        let n = 10;
+        let d = 3;
+
+        // Create weights with varying prominence
+        let weights_data: Vec<f32> = (0..n).map(|i| (i as f32 + 1.0) / n as f32).collect();
+        let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(weights_data.as_slice(), &device);
+        let bias_ebm = NodeBiasEBM::new(weights.clone(), 1.0);
+
+        // Test 1: Energy scales with weight
+        // All nodes at same distance from origin
+        let uniform_dist = 10.0f32;
+        let mut pos_data = Vec::with_capacity(n * d);
+        for _ in 0..n {
+            pos_data.extend_from_slice(&[uniform_dist, 0.0, 0.0]);
+        }
+        let positions_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(pos_data.as_slice(), &device);
+        let positions_uniform = positions_1d.reshape([n as i32, d as i32]);
+
+        let energy = bias_ebm.energy_radial(&positions_uniform, 100.0);
+        let energy_data: Vec<f32> = energy.into_data().to_vec().expect("energy vec");
+
+        // Higher weight nodes should have higher magnitude energy at same distance
+        // E = -weight * log(dist/max_dist), at dist=10, max_dist=100: log(0.1) ≈ -2.3
+        // So E ≈ weight * 2.3 (positive, proportional to weight)
+        for i in 1..n {
+            assert!(
+                energy_data[i] > energy_data[i - 1],
+                "Higher weight should give higher energy at same distance: E[{}]={} vs E[{}]={}",
+                i,
+                energy_data[i],
+                i - 1,
+                energy_data[i - 1]
+            );
+        }
+
+        // Test 2: Force points inward (toward origin) for positive weights
+        let positions: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Uniform(5.0, 20.0), &device);
+        let force = bias_ebm.force_radial(&positions);
+        let force_data: Vec<f32> = force.into_data().to_vec().expect("force vec");
+
+        // All forces should be positive (pointing toward origin reduces distance)
+        for (i, &f) in force_data.iter().enumerate() {
+            assert!(
+                f > 0.0,
+                "Force should be positive (toward origin) for node {}: got {}",
+                i,
+                f
+            );
+        }
+
+        // Test 3: Force magnitude scales with weight at same distance
+        // Use uniform positions so only weight varies
+        let force_uniform = bias_ebm.force_radial(&positions_uniform);
+        let force_uniform_data: Vec<f32> = force_uniform
+            .into_data()
+            .to_vec()
+            .expect("force uniform vec");
+
+        for i in 1..n {
+            assert!(
+                force_uniform_data[i] > force_uniform_data[i - 1],
+                "Higher weight should give stronger force at same distance: F[{}]={} vs F[{}]={}",
+                i,
+                force_uniform_data[i],
+                i - 1,
+                force_uniform_data[i - 1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_large_random_graph() {
+        let device = init_gpu_device();
+        let n = 100;
+        let d = 3;
+
+        // Create a large graph with moderate connectivity
+        let graph = create_random_graph(n, 0.1); // ~500 edges
+        let ebm = SpringEBM::from_graph(&graph, 1.0, &device);
+
+        println!(
+            "Large graph test: {} nodes, {} edges",
+            graph.n_nodes,
+            graph.n_edges()
+        );
+
+        // Random positions
+        let positions: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 10.0), &device);
+
+        // Verify energy computation completes and is valid
+        let energy = ebm.total_energy(&positions);
+        assert!(energy.is_finite(), "Energy should be finite");
+        assert!(energy >= 0.0, "Energy should be non-negative");
+
+        // Verify force computation completes and is valid
+        let force = ebm.force(&positions);
+        let force_data: Vec<f32> = force.into_data().to_vec().expect("force vec");
+        assert_eq!(force_data.len(), n * d);
+        assert!(
+            force_data.iter().all(|&f| f.is_finite()),
+            "All forces should be finite"
+        );
+
+        // Verify gradient computation
+        let gradient = ebm.gradient(&positions);
+        let grad_data: Vec<f32> = gradient.into_data().to_vec().expect("grad vec");
+        assert_eq!(grad_data.len(), n * d);
+
+        println!("Large graph energy: {}", energy);
     }
 }

@@ -76,7 +76,7 @@ pub fn make_lattice_graph(side_len: usize, torus: bool) -> (Vec<Node>, GraphSide
     assert!(side_len > 0, "side_len must be positive");
 
     // Round up to even for proper two-coloring
-    let side_len = (side_len + 1) / 2 * 2;
+    let side_len = side_len.div_ceil(2) * 2;
     let size = side_len * side_len;
 
     // Helper: convert (i, j) grid coordinates to linear index
@@ -88,13 +88,11 @@ pub fn make_lattice_graph(side_len: usize, torus: bool) -> (Vec<Node>, GraphSide
             let i_wrapped = ((i % side) + side) % side;
             let j_wrapped = ((j % side) + side) % side;
             Some((i_wrapped * side + j_wrapped) as usize)
-        } else {
+        } else if i >= 0 && i < side && j >= 0 && j < side {
             // Boundary check
-            if i >= 0 && i < side && j >= 0 && j < side {
-                Some((i * side + j) as usize)
-            } else {
-                None
-            }
+            Some((i * side + j) as usize)
+        } else {
+            None
         }
     };
 
@@ -146,15 +144,14 @@ pub fn make_lattice_graph(side_len: usize, torus: bool) -> (Vec<Node>, GraphSide
     let mut upper_nodes = Vec::new();
     let mut lower_nodes = Vec::new();
 
-    for idx in 0..size {
+    for (idx, node) in nodes.iter().enumerate() {
         let i = idx / side_len;
         let j = idx % side_len;
-        let parity = (i + j) % 2;
 
-        if parity == 0 {
-            upper_nodes.push(nodes[idx].clone());
+        if (i + j).is_multiple_of(2) {
+            upper_nodes.push(node.clone());
         } else {
-            lower_nodes.push(nodes[idx].clone());
+            lower_nodes.push(node.clone());
         }
     }
 
@@ -183,7 +180,7 @@ pub fn make_nearest_neighbor_lattice(
 ) -> (Vec<Node>, GraphSidecar, Block, Block) {
     assert!(side_len > 0, "side_len must be positive");
 
-    let side_len = (side_len + 1) / 2 * 2;
+    let side_len = side_len.div_ceil(2) * 2;
     let size = side_len * side_len;
 
     let get_idx = |i: i32, j: i32| -> Option<usize> {
@@ -192,12 +189,10 @@ pub fn make_nearest_neighbor_lattice(
             let i_wrapped = ((i % side) + side) % side;
             let j_wrapped = ((j % side) + side) % side;
             Some((i_wrapped * side + j_wrapped) as usize)
+        } else if i >= 0 && i < side && j >= 0 && j < side {
+            Some((i * side + j) as usize)
         } else {
-            if i >= 0 && i < side && j >= 0 && j < side {
-                Some((i * side + j) as usize)
-            } else {
-                None
-            }
+            None
         }
     };
 
@@ -231,13 +226,13 @@ pub fn make_nearest_neighbor_lattice(
     let mut upper_nodes = Vec::new();
     let mut lower_nodes = Vec::new();
 
-    for idx in 0..size {
+    for (idx, node) in nodes.iter().enumerate() {
         let i = idx / side_len;
         let j = idx % side_len;
-        if (i + j) % 2 == 0 {
-            upper_nodes.push(nodes[idx].clone());
+        if (i + j).is_multiple_of(2) {
+            upper_nodes.push(node.clone());
         } else {
-            lower_nodes.push(nodes[idx].clone());
+            lower_nodes.push(node.clone());
         }
     }
 

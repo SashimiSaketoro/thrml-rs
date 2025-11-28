@@ -81,6 +81,7 @@
 pub mod bernoulli;
 pub mod gaussian;
 pub mod langevin;
+pub mod maxcut;
 pub mod program;
 pub mod rng;
 pub mod sampler;
@@ -92,6 +93,7 @@ pub mod spin_gibbs;
 pub use bernoulli::*;
 pub use gaussian::*;
 pub use langevin::*;
+pub use maxcut::*;
 pub use program::*;
 pub use rng::*;
 pub use sampler::*;

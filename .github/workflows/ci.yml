@@ -13,6 +13,7 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  # Compile check on Linux (no GPU hardware needed for check)
   check-linux:
     name: Check (Linux)
     runs-on: ubuntu-22.04
@@ -22,23 +23,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --no-default-features
+      # Check that GPU code compiles (no hardware needed for cargo check)
+      - run: cargo check --workspace --features gpu
 
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+  # Test thrml-core without GPU (the only crate that supports it)
+  test-core:
+    name: Test Core (no GPU)
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --no-default-features
+      # Only thrml-core properly supports --no-default-features
+      - run: cargo test --package thrml-core --no-default-features
 
+  # Full test suite on macOS with Metal GPU
   test-gpu:
     name: GPU Tests (Metal)
     runs-on: macos-latest
@@ -49,27 +50,16 @@ jobs:
       - run: cargo test --workspace --features gpu
 
   clippy:
-    name: Clippy (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - name: Linux
-            os: ubuntu-22.04
-            features: --no-default-features
-          - name: macOS-GPU
-            os: macos-latest
-            features: --features gpu
+    name: Clippy
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace ${{ matrix.features }} -- -D warnings
+      # Run clippy with GPU features (static analysis, no GPU hardware needed but macOS has best compatibility)
+      - run: cargo clippy --workspace --features gpu -- -D warnings
 
   fmt:
     name: Format
@@ -83,14 +73,13 @@ jobs:
 
   docs:
     name: Documentation
-    runs-on: ubuntu-22.04
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --workspace --no-deps --no-default-features
+      # Generate docs with GPU features (macOS for Metal compatibility)
+      - run: cargo doc --workspace --no-deps --features gpu
         env:
           RUSTDOCFLAGS: -D warnings
 

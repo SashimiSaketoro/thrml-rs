@@ -101,6 +101,22 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - `AdvancedTrainingConfig`: Unified config for all CD techniques
 - Learning rate warmup and cosine annealing schedules
 
+#### Hardware-Aware Precision Routing (`thrml-core`)
+- `RuntimePolicy`: Auto-detect hardware and configure precision routing
+  - `RuntimePolicy::detect()`: Automatic GPU detection via WGPU adapter info
+  - `RuntimePolicy::apple_silicon()`, `nvidia_consumer()`, `nvidia_hopper()`, `nvidia_blackwell()`: Tier-specific constructors
+  - `is_hpc_tier()`: Check if hardware supports native GPU f64
+  - `precision_dtype()`: Get appropriate dtype based on profile
+- `HardwareTier` enum: `AppleSilicon`, `NvidiaConsumer`, `AmdRdna`, `NvidiaHopper`, `NvidiaBlackwell`, `CpuOnly`, `Unknown`
+- `PrecisionProfile` enum: `CpuFp64Strict`, `GpuMixed`, `GpuHpcFp64`
+- `ComputeBackend::from_policy()`: Create backend from runtime policy
+- `ComputeBackend::GpuHpcF64`: New variant for HPC GPUs with CUDA f64 support
+- `ComputeBackend::uses_gpu_f64()`: Check if backend uses GPU-native f64
+- `OpType` expanded: Added `CategoricalSampling`, `GradientCompute`, `LossReduction`, `BatchEnergyForward`
+- `GpuInfo` struct and `detect_gpu_info()`: Hardware detection via WGPU
+- Vendor ID constants for Apple, NVIDIA, AMD, Intel detection
+- CUDA f64 feature gate for HPC GPU paths
+
 #### Hybrid Compute Backend (`thrml-core`)
 - `ComputeBackend`: CPU/GPU/Hybrid/Adaptive backend selection
 - `OpType`: Operation classification for precision routing
@@ -109,6 +125,23 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - `ComputeBackend::apple_silicon()`: Auto-detect Apple Silicon unified memory
 - `cpu_ising` module: Pure Rust f64 Ising implementations for precision-sensitive ops
 - `test_both_backends` utility: Test CPU and GPU paths with appropriate tolerances
+
+#### Sampler Precision Routing (`thrml-samplers`)
+- `SpinGibbsConditional::sample_routed()`: Routes Ising sampling based on ComputeBackend
+  - CUDA f64 path for HPC GPUs (H100, B200)
+  - CPU f64 path for Apple Silicon and consumer GPUs
+  - GPU f32 fallback for bulk operations
+- `CategoricalGibbsConditional::sample_routed()`: Precision routing for categorical sampling
+- `GaussianSampler::sample_routed()`: Routes precision/mean accumulation to CPU f64
+- `langevin_step_2d_routed()`: Routes Langevin dynamics based on precision requirements
+- CPU f64 implementations extract tensors, compute in f64, convert back to f32
+- Battle tests for sampler precision routing consistency
+
+#### Model Precision Routing (`thrml-models`)
+- `DiscreteEBMFactor::factor_energy_routed()`: Routes energy computation based on ComputeBackend
+- Spin product and categorical indexing computed in CPU f64 for precision
+- Delegates to specialized factor types: `SpinEBMFactor`, `CategoricalEBMFactor`, etc.
+- Battle tests for model precision routing and backend selection
 
 #### Graph-based Models (`thrml-models`)
 - `GraphSidecar`: Graph structure with edges and node attributes

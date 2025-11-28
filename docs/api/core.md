@@ -412,6 +412,62 @@ let config = HybridConfig::apple_silicon();
 let config = HybridConfig::discrete_gpu();
 ```
 
+### `RuntimePolicy`
+
+Auto-detect hardware and create precision-appropriate configuration:
+
+```rust
+use thrml_core::compute::{RuntimePolicy, HardwareTier, PrecisionProfile};
+
+// Auto-detect hardware
+let policy = RuntimePolicy::detect();
+
+println!("Tier: {:?}", policy.tier);        // e.g., AppleSilicon
+println!("Profile: {:?}", policy.profile);  // e.g., CpuFp64Strict
+println!("Use GPU: {}", policy.use_gpu);
+
+// Create backend from policy
+let backend = ComputeBackend::from_policy(&policy);
+
+// Tier-specific constructors
+let apple = RuntimePolicy::apple_silicon();
+let hpc = RuntimePolicy::nvidia_hopper();    // H100/H200
+let spark = RuntimePolicy::nvidia_spark();   // DGX Spark / GB10
+let consumer = RuntimePolicy::nvidia_consumer();
+```
+
+### `HardwareTier`
+
+Hardware classification for runtime configuration:
+
+```rust
+pub enum HardwareTier {
+    AppleSilicon,      // M1–M4 unified memory
+    NvidiaConsumer,    // RTX 3080–5090
+    NvidiaHopper,      // H100, H200
+    NvidiaBlackwell,   // B200
+    NvidiaSpark,       // DGX Spark / GB10
+    AmdRdna,           // RX 7900 series
+    CpuOnly,           // No GPU
+    Unknown,           // Fallback
+}
+```
+
+### `PrecisionProfile`
+
+Precision strategy per hardware tier:
+
+```rust
+pub enum PrecisionProfile {
+    /// Route precision-sensitive ops to CPU f64 (Apple Silicon, consumer GPUs)
+    CpuFp64Strict,
+    /// GPU f32 with CPU f64 fallback for specific ops
+    GpuMixed,
+    /// Full f64 on GPU (HPC: H100, B200, Spark)
+    GpuHpcFp64,
+}
+```
+
 ### Testing Utilities
 
 ```rust
@@ -423,5 +479,142 @@ test_both_backends(|backend| {
     let tolerance = recommended_tolerance(backend);
     assert!((result - expected).abs() < tolerance);
 });
+```
+
+---
+
+## Retrieval Metrics
+
+The `metrics` module provides standard information retrieval metrics for evaluating ranking quality.
+
+### Core Functions
+
+```rust
+use thrml_core::metrics::{recall_at_k, mrr, ndcg, find_rank};
+
+let retrieved = vec![5, 2, 8, 1, 9];
+let target = 8;
+
+// Recall@k: 1.0 if target in top-k, else 0.0
+assert_eq!(recall_at_k(&retrieved, target, 3), 1.0);  // Found at position 3
+assert_eq!(recall_at_k(&retrieved, target, 2), 0.0);  // Not in top 2
+
+// MRR: 1/rank (1-indexed)
+assert!((mrr(&retrieved, target) - 1.0/3.0).abs() < 1e-6);  // Rank 3
+
+// nDCG: Normalized DCG for binary relevance
+assert!((ndcg(&retrieved, target, 5) - 0.5).abs() < 1e-6);  // 1/log2(4)
+
+// Find rank (returns Option<usize>)
+assert_eq!(find_rank(&retrieved, target), Some(3));
+```
+
+### Batch Evaluation
+
+```rust
+use thrml_core::metrics::{evaluate_retrieval, RetrievalMetrics};
+
+let results = vec![
+    (vec![1, 2, 3, 4, 5], 3),  // Target 3 at rank 3
+    (vec![5, 4, 3, 2, 1], 5),  // Target 5 at rank 1
+    (vec![1, 2, 3, 4, 5], 9),  // Target 9 not found
+];
+
+let metrics = evaluate_retrieval(&results, &[1, 3, 5, 10]);
+
+println!("{}", metrics);  // Pretty-printed summary
+// Retrieval Metrics (n=3)
+//   MRR:      0.4444
+//   Recall@1: 0.3333
+//   Recall@3: 0.6667
+//   ...
+```
+
+### Multi-Relevance nDCG
+
+```rust
+use thrml_core::metrics::ndcg_multi;
+
+let retrieved = vec![3, 1, 4, 2, 5];
+let relevant = vec![1, 4];  // Multiple relevant items
+
+let score = ndcg_multi(&retrieved, &relevant, 5);
+// Accounts for both items' positions
+```
+
+---
+
+## Text Similarity
+
+The `text` module provides efficient text/byte similarity primitives based on n-gram hashing.
+
+### Rolling Hash
+
+Efficient O(1) sliding window hash for n-grams:
+
+```rust
+use thrml_core::text::RollingHash;
+
+let mut hasher = RollingHash::new(3);  // 3-gram
+hasher.init(b"abc");
+
+let hash1 = hasher.value();
+hasher.roll(b'a', b'd');  // Now hashing "bcd"
+let hash2 = hasher.value();
+
+assert_ne!(hash1, hash2);
+```
+
+### N-gram Hashing
+
+```rust
+use thrml_core::text::{ngram_hashes, ngram_hashes_with_length};
+
+// Compute all n-gram hashes for a byte sequence
+let hashes = ngram_hashes(b"hello world", 3, 5);
+// Contains hashes for all 3-grams, 4-grams, and 5-grams
+
+// With length info for multi-scale comparison
+let hashes_with_len = ngram_hashes_with_length(b"hello", 2, 3);
+// (2, hash("he")), (2, hash("el")), ..., (3, hash("hel")), ...
+```
+
+### Jaccard Similarity
+
+```rust
+use thrml_core::text::{ngram_hashes, jaccard_similarity};
+use std::collections::HashSet;
+
+let a = ngram_hashes(b"hello world", 3, 5);
+let b = ngram_hashes(b"hello there", 3, 5);
+
+let similarity = jaccard_similarity(&a, &b);
+// |A ∩ B| / |A ∪ B|
+```
+
+### Substring Containment
+
+```rust
+use thrml_core::text::{contains_subsequence, check_containment};
+
+assert!(contains_subsequence(b"hello world", b"lo wo"));
+assert!(!contains_subsequence(b"hello", b"world"));
+
+// Check mutual containment
+if let Some((a_in_b, container_len, contained_len)) = check_containment(b"hello", b"ell") {
+    println!("Container: {} bytes, contained: {} bytes", container_len, contained_len);
+}
+```
+
+### High-Level Text Similarity
+
+```rust
+use thrml_core::text::{text_similarity, TextSimilarityConfig};
+
+let config = TextSimilarityConfig::default()
+    .with_ngram_range(4, 64)
+    .with_weights(0.7, 0.3);  // embedding_weight, text_weight
+
+let sim = text_similarity(b"function calculate_total", b"calculate_total_price", &config);
 ```
 

@@ -322,3 +322,123 @@ pub fn categorical_sample(
 
 This is equivalent to `jax.random.categorical(key, logits, axis=-1)`.
 
+---
+
+## Max-Cut Graph Partitioning
+
+The `maxcut` module provides CPU-based f64 implementations of max-cut algorithms using Gibbs sampling. Useful for graph partitioning where high precision is required.
+
+### `maxcut_gibbs`
+
+Gibbs/Metropolis-Hastings sampling for max-cut:
+
+```rust
+use thrml_samplers::maxcut::{maxcut_gibbs, cut_value};
+
+// 4-node cycle graph
+let weights = vec![
+    vec![0.0, 1.0, 0.0, 1.0],
+    vec![1.0, 0.0, 1.0, 0.0],
+    vec![0.0, 1.0, 0.0, 1.0],
+    vec![1.0, 0.0, 1.0, 0.0],
+];
+
+let partition = maxcut_gibbs(&weights, 100, 2.0, 42);
+// partition: Vec<i8> with values +1 or -1
+
+let value = cut_value(&weights, &partition);
+// value = 4.0 for optimal alternating partition
+```
+
+**Parameters:**
+
+- `weights` - Symmetric weight matrix `J[i][j]` for edge (i,j)
+- `n_sweeps` - Number of full sweeps through all nodes
+- `beta` - Inverse temperature (higher = greedier)
+- `seed` - Random seed for reproducibility
+
+### `maxcut_multistart`
+
+Run multiple random restarts and return the best partition:
+
+```rust
+use thrml_samplers::maxcut::maxcut_multistart;
+
+let (best_partition, best_value) = maxcut_multistart(
+    &weights, 
+    100,    // n_sweeps per restart
+    2.0,    // beta
+    10,     // n_restarts
+    42,     // seed
+);
+
+println!("Best cut value: {}", best_value);
+```
+
+### `maxcut_greedy`
+
+Fast greedy local search (less optimal but fast):
+
+```rust
+use thrml_samplers::maxcut::maxcut_greedy;
+
+let partition = maxcut_greedy(&weights, 100, 42);
+```
+
+### Utility Functions
+
+```rust
+use thrml_samplers::maxcut::{
+    cut_value, 
+    ising_energy, 
+    partition_to_binary, 
+    binary_to_partition
+};
+
+// Cut value = Σ_{i<j} J[i][j] * (1 - σ_i * σ_j) / 2
+let value = cut_value(&weights, &partition);
+
+// Ising energy = -Σ_{i<j} J[i][j] * σ_i * σ_j
+let energy = ising_energy(&weights, &partition);
+
+// Convert between {-1, +1} and {0, 1}
+let binary = partition_to_binary(&partition);  // Vec<u8>
+let spins = binary_to_partition(&binary);      // Vec<i8>
+```
+
+---
+
+## Precision Routing
+
+All samplers support precision routing via `*_routed()` methods that dispatch based on hardware capabilities.
+
+### Routed Sampling
+
+```rust
+use thrml_samplers::{SpinGibbsConditional, RuntimePolicy, ComputeBackend, OpType};
+
+// Auto-detect hardware
+let policy = RuntimePolicy::detect();
+let backend = ComputeBackend::from_policy(&policy);
+
+let sampler = SpinGibbsConditional::new();
+
+// Sample with precision routing
+let (samples, _) = sampler.sample_routed(
+    &backend, key, &interactions, &active, &states, &n_spin, (), &spec, &device
+);
+
+// On Apple Silicon: IsingSampling routes to CPU f64
+// On HPC GPUs with CUDA: Uses GPU f64 for speed + precision
+```
+
+### Available Routed Methods
+
+| Sampler | Method | Op Type |
+|---------|--------|---------|
+| `SpinGibbsConditional` | `sample_routed()` | `IsingSampling` |
+| `CategoricalGibbsConditional` | `sample_routed()` | `CategoricalSampling` |
+| `GaussianSampler` | `sample_routed()` | `GradientCompute` |
+| `langevin` | `langevin_step_2d_routed()` | `LangevinStep` |
+
+These use the same routing logic as `ComputeBackend::use_cpu(op_type, size)` to determine CPU vs GPU execution.

@@ -45,7 +45,7 @@ use rand::{Rng, SeedableRng};
 ///
 /// # Arguments
 ///
-/// * `weights` - Symmetric weight matrix J[i][j] for edge (i,j)
+/// * `weights` - Symmetric weight matrix `J[i][j]` for edge (i,j)
 /// * `n_sweeps` - Number of full sweeps through all nodes
 /// * `beta` - Inverse temperature (higher = more greedy, lower = more exploration)
 /// * `seed` - Random seed for reproducibility
@@ -174,7 +174,7 @@ pub fn maxcut_multistart(
 
 /// Compute the cut value for a given partition.
 ///
-/// Cut value = Σ_{i<j} J[i][j] * (1 - σ_i * σ_j) / 2
+/// Cut value = `Σ_{i<j} J[i][j] * (1 - σ_i * σ_j) / 2`
 ///
 /// This counts the total weight of edges crossing the partition.
 ///
@@ -233,7 +233,7 @@ pub fn binary_to_partition(binary: &[u8]) -> Vec<i8> {
 
 /// Compute the Ising energy for a given spin configuration.
 ///
-/// E = -Σ_{i<j} J[i][j] * σ_i * σ_j
+/// `E = -Σ_{i<j} J[i][j] * σ_i * σ_j`
 ///
 /// Note: Max-cut maximizes cut_value, which minimizes Ising energy
 /// (they differ by a constant).

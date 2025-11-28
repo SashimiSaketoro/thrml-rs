@@ -101,6 +101,34 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - `AdvancedTrainingConfig`: Unified config for all CD techniques
 - Learning rate warmup and cosine annealing schedules
 
+#### Retrieval Metrics (`thrml-core::metrics`) - NEW MODULE
+- `recall_at_k()`: Recall@k for single query evaluation
+- `mrr()`: Mean Reciprocal Rank for single query
+- `ndcg()`: Normalized Discounted Cumulative Gain (binary relevance)
+- `ndcg_multi()`: nDCG with multiple relevant items (graded relevance)
+- `find_rank()`: Find 1-indexed rank of target in results
+- `evaluate_retrieval()`: Batch evaluation over multiple queries
+- `RetrievalMetrics`: Aggregated metrics struct with `Display` impl
+
+#### Text Similarity (`thrml-core::text`) - NEW MODULE
+- `RollingHash`: Efficient O(1) sliding window polynomial hash
+- `ngram_hashes()`: Compute all n-gram hashes for a byte sequence
+- `ngram_hashes_with_length()`: Include n-gram length for multi-scale comparison
+- `jaccard_similarity()`: Set-based Jaccard coefficient
+- `contains_subsequence()`: Check contiguous substring containment
+- `check_containment()`: Mutual containment check with size info
+- `hybrid_similarity()`: Weighted combination of two similarity scores
+- `TextSimilarityConfig`: Configuration struct with builder pattern
+- `text_similarity()`: High-level text similarity function
+
+#### Max-Cut Graph Partitioning (`thrml-samplers::maxcut`) - NEW MODULE
+- `maxcut_gibbs()`: Gibbs/Metropolis-Hastings sampling for max-cut
+- `maxcut_multistart()`: Multiple random restarts, returns best partition
+- `maxcut_greedy()`: Fast greedy local search
+- `cut_value()`: Compute total weight of edges crossing partition
+- `ising_energy()`: Compute Ising energy for spin configuration
+- `partition_to_binary()` / `binary_to_partition()`: Convert representations
+
 #### Hardware-Aware Precision Routing (`thrml-core`)
 - `RuntimePolicy`: Auto-detect hardware and configure precision routing
   - `RuntimePolicy::detect()`: Automatic GPU detection via WGPU adapter info

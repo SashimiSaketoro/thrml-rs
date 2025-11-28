@@ -151,6 +151,7 @@ impl GaussianSampler {
     ///
     /// Routes the precision/mean accumulation through CPU f64 or CUDA f64
     /// based on the backend configuration.
+    #[allow(clippy::too_many_arguments)]
     pub fn sample_routed(
         &self,
         backend: &ComputeBackend,
@@ -190,6 +191,7 @@ impl GaussianSampler {
     }
 
     /// Sample using CPU f64 for precision-sensitive accumulation.
+    #[allow(clippy::needless_range_loop)]
     fn sample_cpu_f64(
         &self,
         interactions: &[InteractionData],
@@ -213,7 +215,8 @@ impl GaussianSampler {
 
             match interaction {
                 InteractionData::Quadratic { inverse_weights } => {
-                    let weights_data: Vec<f32> = inverse_weights.clone().into_data().to_vec().unwrap();
+                    let weights_data: Vec<f32> =
+                        inverse_weights.clone().into_data().to_vec().unwrap();
 
                     // Sum over k dimension with active flags
                     for node in 0..n_nodes {
@@ -262,7 +265,7 @@ impl GaussianSampler {
         // Compute variance, mean, std in f64
         let epsilon = 1e-8f64;
         let mut samples_f64: Vec<f64> = Vec::with_capacity(n_nodes);
-        
+
         // Use thread_rng for noise
         use rand_distr::{Distribution as RandDist, StandardNormal};
         let mut rng = rand::thread_rng();

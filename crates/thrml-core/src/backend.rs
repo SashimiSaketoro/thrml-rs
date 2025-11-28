@@ -216,7 +216,7 @@ pub struct GpuInfo {
 #[cfg(feature = "gpu")]
 pub fn detect_gpu_info() -> Option<GpuInfo> {
     use wgpu::{Backends, Instance, InstanceDescriptor, RequestAdapterOptions};
-    
+
     // Use std::panic::catch_unwind to handle potential panics from WGPU
     // This can happen in certain CI environments or when drivers are broken
     let result = std::panic::catch_unwind(|| {
@@ -224,7 +224,7 @@ pub fn detect_gpu_info() -> Option<GpuInfo> {
             backends: Backends::all(),
             ..Default::default()
         });
-        
+
         // Request high-performance adapter (prefers discrete GPU)
         // wgpu 26.x returns Result<Result<Adapter, RequestAdapterError>, ...>
         pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
@@ -233,7 +233,7 @@ pub fn detect_gpu_info() -> Option<GpuInfo> {
             force_fallback_adapter: false,
         }))
     });
-    
+
     match result {
         Ok(Ok(adapter)) => {
             let info = adapter.get_info();

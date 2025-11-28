@@ -200,14 +200,14 @@ fn test_compute_backend_from_policy() {
     // GpuHpcFp64 profile behavior depends on CUDA availability
     let h100_policy = RuntimePolicy::nvidia_hopper();
     let backend = ComputeBackend::from_policy(&h100_policy);
-    
+
     #[cfg(feature = "cuda")]
     {
         // With CUDA: GPU f64 for everything
         assert!(!backend.use_cpu(OpType::IsingSampling, None));
         assert!(!backend.use_cpu(OpType::GradientCompute, None));
     }
-    
+
     #[cfg(not(feature = "cuda"))]
     {
         // Without CUDA: falls back to UnifiedHybrid (CPU f64 for precision ops)

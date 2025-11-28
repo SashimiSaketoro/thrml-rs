@@ -126,26 +126,26 @@ pub enum HardwareTier {
     /// Apple Silicon M1-M5: Metal backend, no native FP64 on GPU.
     /// Unified memory enables zero-copy CPU/GPU data sharing.
     AppleSilicon,
-    
+
     /// NVIDIA consumer GPUs: RTX 3080-5090 (Ampere/Ada/Blackwell consumer).
     /// Compute capability 8.x, 12.x - FP64 is ~1/64 of FP32 throughput.
     NvidiaConsumer,
-    
+
     /// AMD RDNA 3/4: RX 7000-9000 series.
     /// Optimized for FP32/FP16/INT8, minimal FP64 support.
     AmdRdna,
-    
+
     /// NVIDIA H100/H200 (Hopper): Compute capability 9.0.
     /// Strong FP64 support for HPC workloads.
     NvidiaHopper,
-    
+
     /// NVIDIA B200/GB200 (Blackwell datacenter): Compute capability 10.0.
     /// Strong FP64 + FP8/BF16 tensor cores for mixed precision.
     NvidiaBlackwell,
-    
+
     /// CPU-only fallback (no GPU available or disabled).
     CpuOnly,
-    
+
     /// Unknown GPU - use conservative defaults.
     Unknown,
 }
@@ -191,12 +191,12 @@ pub enum PrecisionProfile {
     /// Appropriate for: Apple Silicon, NVIDIA consumer, AMD RDNA
     #[default]
     CpuFp64Strict,
-    
+
     /// Mixed precision: GPU fp32/complex64 for most ops,
     /// CPU fp64/complex128 for accumulation and critical kernels.
     /// Appropriate for: Consumer GPUs with good fp32 performance
     GpuMixed,
-    
+
     /// Full GPU fp64/complex128 for core thermodynamic operations.
     /// CPU used only for orchestration.
     /// Appropriate for: H100, B200, datacenter GPUs with strong FP64
@@ -261,14 +261,14 @@ impl RuntimePolicy {
         Self {
             tier: HardwareTier::AppleSilicon,
             profile: PrecisionProfile::CpuFp64Strict,
-            real_dtype: DType::F32, // GPU ops use f32
+            real_dtype: DType::F32,    // GPU ops use f32
             complex_dtype: DType::F32, // complex64 on GPU, complex128 on CPU
             use_gpu: true,
             allow_mixed_precision: true,
             max_rel_error: 1e-6,
         }
     }
-    
+
     /// NVIDIA consumer GPU policy (RTX 3080-5090).
     ///
     /// Uses GPU for most operations but routes precision-sensitive
@@ -284,7 +284,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-4,
         }
     }
-    
+
     /// AMD RDNA 3/4 policy (RX 7000-9000 series).
     ///
     /// Similar to NVIDIA consumer - good FP32/FP16, weak FP64.
@@ -299,7 +299,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-4,
         }
     }
-    
+
     /// NVIDIA H100/H200 (Hopper) policy.
     ///
     /// Full GPU fp64 for core thermodynamic operations.
@@ -315,7 +315,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-10,
         }
     }
-    
+
     /// NVIDIA B200/GB200 (Blackwell datacenter) policy.
     ///
     /// Full GPU fp64 with optional FP8/BF16 for mixed precision proposals.
@@ -330,7 +330,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-10,
         }
     }
-    
+
     /// CPU-only policy.
     ///
     /// Maximum precision, no GPU usage. Useful for debugging or
@@ -346,7 +346,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-12,
         }
     }
-    
+
     /// Conservative default for unknown hardware.
     ///
     /// Uses CpuFp64Strict profile to be safe, but enables GPU for
@@ -362,7 +362,7 @@ impl RuntimePolicy {
             max_rel_error: 1e-4,
         }
     }
-    
+
     /// Create policy for a specific hardware tier.
     pub fn for_tier(tier: HardwareTier) -> Self {
         match tier {
@@ -375,20 +375,20 @@ impl RuntimePolicy {
             HardwareTier::Unknown => Self::conservative_default(),
         }
     }
-    
+
     /// Platform-based fallback when GPU detection fails.
     fn platform_fallback_tier() -> HardwareTier {
         #[cfg(target_os = "macos")]
         {
             HardwareTier::AppleSilicon
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             HardwareTier::Unknown
         }
     }
-    
+
     /// Auto-detect hardware and create appropriate policy.
     ///
     /// Detection priority:
@@ -409,21 +409,21 @@ impl RuntimePolicy {
                 return Self::for_tier(tier);
             }
         }
-        
+
         // Fallback: use platform detection
         Self::for_tier(Self::platform_fallback_tier())
     }
-    
+
     /// Classify hardware tier from GPU info.
     #[cfg(feature = "gpu")]
     fn classify_hardware(gpu: &crate::backend::GpuInfo) -> HardwareTier {
         match gpu.vendor_id {
             vendor_ids::APPLE => HardwareTier::AppleSilicon,
-            
+
             vendor_ids::NVIDIA => {
                 // Distinguish consumer vs datacenter by device name
                 let name_upper = gpu.name.to_uppercase();
-                
+
                 if name_upper.contains("H100") || name_upper.contains("H200") {
                     HardwareTier::NvidiaHopper
                 } else if name_upper.contains("B200") || name_upper.contains("GB200") {
@@ -436,14 +436,14 @@ impl RuntimePolicy {
                     HardwareTier::NvidiaConsumer
                 }
             }
-            
+
             vendor_ids::AMD => HardwareTier::AmdRdna,
-            
+
             vendor_ids::INTEL => {
                 // Intel Arc or integrated - treat conservatively
                 HardwareTier::Unknown
             }
-            
+
             _ => HardwareTier::Unknown,
         }
     }
@@ -482,7 +482,9 @@ impl RuntimePolicy {
     /// - For consumer tiers with CpuFp64Strict: F64 on CPU
     /// - Otherwise: F32
     pub fn precision_dtype(&self) -> DType {
-        if self.profile == PrecisionProfile::GpuHpcFp64 || self.profile == PrecisionProfile::CpuFp64Strict {
+        if self.profile == PrecisionProfile::GpuHpcFp64
+            || self.profile == PrecisionProfile::CpuFp64Strict
+        {
             DType::F64
         } else {
             DType::F32
@@ -616,33 +618,29 @@ impl ComputeBackend {
     /// ```
     pub fn from_policy(policy: &RuntimePolicy) -> Self {
         match policy.profile {
-            PrecisionProfile::CpuFp64Strict => {
-                ComputeBackend::UnifiedHybrid {
-                    cpu_ops: vec![
-                        OpType::IsingSampling,
-                        OpType::CategoricalSampling,
-                        OpType::SphericalHarmonics,
-                        OpType::ArcTrig,
-                        OpType::ComplexArithmetic,
-                        OpType::SmallMatmul,
-                        OpType::GradientCompute,
-                        OpType::LossReduction,
-                    ],
-                    small_matmul_threshold: 2000,
-                }
-            }
-            PrecisionProfile::GpuMixed => {
-                ComputeBackend::UnifiedHybrid {
-                    cpu_ops: vec![
-                        OpType::IsingSampling,
-                        OpType::CategoricalSampling,
-                        OpType::SphericalHarmonics,
-                        OpType::GradientCompute,
-                        OpType::LossReduction,
-                    ],
-                    small_matmul_threshold: 1000,
-                }
-            }
+            PrecisionProfile::CpuFp64Strict => ComputeBackend::UnifiedHybrid {
+                cpu_ops: vec![
+                    OpType::IsingSampling,
+                    OpType::CategoricalSampling,
+                    OpType::SphericalHarmonics,
+                    OpType::ArcTrig,
+                    OpType::ComplexArithmetic,
+                    OpType::SmallMatmul,
+                    OpType::GradientCompute,
+                    OpType::LossReduction,
+                ],
+                small_matmul_threshold: 2000,
+            },
+            PrecisionProfile::GpuMixed => ComputeBackend::UnifiedHybrid {
+                cpu_ops: vec![
+                    OpType::IsingSampling,
+                    OpType::CategoricalSampling,
+                    OpType::SphericalHarmonics,
+                    OpType::GradientCompute,
+                    OpType::LossReduction,
+                ],
+                small_matmul_threshold: 1000,
+            },
             PrecisionProfile::GpuHpcFp64 => {
                 // HPC GPUs (H100, B200) have strong FP64 support.
                 // When CUDA is available, we can run precision ops on GPU in f64.
@@ -656,7 +654,7 @@ impl ComputeBackend {
                         ComputeBackend::CpuOnly
                     }
                 }
-                
+
                 #[cfg(not(feature = "cuda"))]
                 {
                     // No CUDA - use WGPU for bulk ops, CPU for precision ops

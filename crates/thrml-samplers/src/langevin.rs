@@ -151,30 +151,32 @@ fn langevin_step_2d_cpu_f64(
     let shape = state.dims();
     let n = shape[0];
     let d = shape[1];
-    
+
     // Extract data
     let state_data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
     let grad_data: Vec<f32> = gradient.clone().into_data().to_vec().unwrap();
-    
+
     // Apply gradient clipping in f64 if enabled
     let grad_f64: Vec<f64> = if let Some(max_grad) = config.gradient_clip {
         let max_grad_f64 = max_grad as f64;
-        grad_data.iter()
+        grad_data
+            .iter()
             .map(|&g| (g as f64).clamp(-max_grad_f64, max_grad_f64))
             .collect()
     } else {
         grad_data.iter().map(|&g| g as f64).collect()
     };
-    
+
     // Compute step in f64
     let step_size_f64 = config.step_size as f64;
     let noise_scale_f64 = config.noise_scale() as f64;
-    
+
     // Use thread_rng for noise (simpler than integrating RngKey for CPU path)
     use rand_distr::{Distribution as RandDist, StandardNormal};
     let mut rng = rand::thread_rng();
-    
-    let result_f64: Vec<f64> = state_data.iter()
+
+    let result_f64: Vec<f64> = state_data
+        .iter()
         .zip(grad_f64.iter())
         .map(|(&s, &g)| {
             let s_f64 = s as f64;
@@ -184,7 +186,7 @@ fn langevin_step_2d_cpu_f64(
             s_f64 + drift + diffusion
         })
         .collect();
-    
+
     // Convert back to f32 tensor
     let result_f32: Vec<f32> = result_f64.iter().map(|&x| x as f32).collect();
     Tensor::<WgpuBackend, 1>::from_floats(result_f32.as_slice(), device)

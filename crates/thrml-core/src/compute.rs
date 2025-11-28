@@ -1074,8 +1074,10 @@ mod tests {
 
         #[cfg(not(target_os = "macos"))]
         {
-            // On non-macOS, default is GPU-only
-            assert!(!backend.use_cpu(OpType::IsingSampling, None));
+            // On non-macOS without GPU detection, default is conservative (CpuFp64Strict)
+            // which routes precision-sensitive ops to CPU
+            assert!(backend.use_cpu(OpType::IsingSampling, None));
+            assert!(!backend.use_cpu(OpType::Similarity, None)); // General ops still go to GPU
         }
     }
 

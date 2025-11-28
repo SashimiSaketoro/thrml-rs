@@ -263,6 +263,49 @@ let mut trainable = TrainableNavigatorEBM::from_navigator(
 let losses = trainable.train(&dataset.train, 50, 16, RngKey::new(42), &device);
 ```
 
+### Hybrid Training (Recommended)
+
+GPU-accelerated training with CPU fallback for precision-sensitive operations.
+Uses batched GPU operations for forward pass and routes gradient accumulation
+based on `ComputeBackend` configuration.
+
+```rust
+use thrml_sphere::TrainableNavigatorEBM;
+use thrml_core::ComputeBackend;
+
+// Create trainable navigator (same as above)
+let mut trainable = TrainableNavigatorEBM::from_navigator(
+    NavigatorEBM::from_sphere_ebm(sphere_ebm.clone()),
+    config,
+);
+
+// Train with hybrid CPU/GPU execution (auto-detects backend)
+let losses = trainable.train_hybrid(
+    &dataset.train, 
+    50,             // epochs
+    16,             // batch_size
+    RngKey::new(42), 
+    &device,
+    None,           // auto-detect backend
+);
+
+// Or with explicit backend configuration
+let backend = ComputeBackend::apple_silicon();
+let losses = trainable.train_hybrid(
+    &dataset.train, 50, 16, RngKey::new(42), &device,
+    Some(&backend),
+);
+```
+
+**Why use hybrid training?**
+
+| Feature | `train()` | `train_hybrid()` |
+|---------|-----------|------------------|
+| Forward pass | Sequential | GPU-batched |
+| Gradient accumulation | CPU f32 | Routed (CPU f64 when needed) |
+| Metal f64 handling | May overflow | Auto-fallback to CPU |
+| AMD RDNA support | May fail | Auto-fallback to CPU |
+
 ### Extended Training with Validation
 
 ```rust

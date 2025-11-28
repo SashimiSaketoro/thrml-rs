@@ -145,9 +145,9 @@ impl HardNegativeMiner {
     ///
     /// # Arguments
     ///
-    /// * `query` - Query embedding [D]
+    /// * `query` - Query embedding \[D\]
     /// * `positive_idx` - Index of the positive target
-    /// * `embeddings` - All embeddings [N, D]
+    /// * `embeddings` - All embeddings \[N, D\]
     /// * `similarity_matrix` - Pre-computed similarity matrix [N, N] (optional)
     /// * `n_negatives` - Number of negatives to return
     /// * `device` - GPU device

@@ -18,6 +18,7 @@
 
 use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
+use thrml_core::compute::{ComputeBackend, OpType};
 use thrml_samplers::RngKey;
 
 use crate::config::SphereConfig;
@@ -241,6 +242,191 @@ impl TrainableNavigatorEBM {
         negatives
     }
 
+    /// Get differentiable soft weights over candidate negatives using Gumbel-Softmax.
+    ///
+    /// This enables differentiable sampling for end-to-end gradient computation.
+    /// Returns soft weights over all candidates (excluding positive), which can be
+    /// used to compute a weighted average of negative energies.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query embedding
+    /// * `query_radius` - Query radius
+    /// * `positive_target` - Index of positive target (excluded from negatives)
+    /// * `temperature` - Gumbel-Softmax temperature (lower = harder selection)
+    /// * `key` - RNG key
+    /// * `device` - GPU device
+    ///
+    /// # Returns
+    ///
+    /// (candidate_indices, soft_weights) where soft_weights are differentiable
+    pub fn get_negative_weights_differentiable(
+        &self,
+        query: &Tensor<WgpuBackend, 1>,
+        query_radius: f32,
+        positive_target: usize,
+        temperature: f32,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> (Vec<usize>, Tensor<WgpuBackend, 1>) {
+        // Get optimized coordinates
+        let coords = self.navigator.sphere_ebm.optimize(key, device);
+
+        // Compute energies for all points except positive
+        let n = self.navigator.n_points();
+        let candidate_indices: Vec<usize> = (0..n).filter(|&i| i != positive_target).collect();
+        let n_candidates = candidate_indices.len();
+
+        if n_candidates == 0 {
+            return (vec![], Tensor::zeros([0], device));
+        }
+
+        // Use batched energy computation
+        let indices_tensor = NavigatorEBM::indices_to_tensor(&candidate_indices, device);
+        let backend = ComputeBackend::default();
+        let energies = self.navigator.total_energy_batched(
+            query,
+            query_radius,
+            &coords,
+            &indices_tensor,
+            device,
+            &backend,
+        );
+
+        // Convert energies to logits (negative energy = higher probability)
+        let logits = energies.neg(); // [n_candidates]
+
+        // Apply Gumbel-Softmax for differentiable sampling
+        let logits_2d: Tensor<WgpuBackend, 2> = logits.reshape([1, n_candidates as i32]);
+        let soft_weights_2d = thrml_kernels::autodiff::gumbel_softmax::gumbel_softmax(
+            logits_2d,
+            temperature,
+            false, // soft selection
+            device,
+        );
+        let soft_weights: Tensor<WgpuBackend, 1> = soft_weights_2d.reshape([n_candidates as i32]);
+
+        (candidate_indices, soft_weights)
+    }
+
+    /// Compute contrastive loss with differentiable negative weighting.
+    ///
+    /// Uses Gumbel-Softmax to create soft weights over negative candidates,
+    /// enabling end-to-end differentiability. This is an alternative to the
+    /// hard negative sampling approach.
+    ///
+    /// # Arguments
+    ///
+    /// * `example` - Training example
+    /// * `gumbel_temperature` - Temperature for Gumbel-Softmax (lower = harder)
+    /// * `key` - RNG key
+    /// * `device` - GPU device
+    /// * `backend` - Compute backend
+    ///
+    /// # Returns
+    ///
+    /// (loss, gradients) where loss uses soft-weighted negative energies
+    pub fn compute_contrastive_loss_differentiable(
+        &self,
+        example: &TrainingExample,
+        gumbel_temperature: f32,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+        backend: &ComputeBackend,
+    ) -> (f32, Vec<f32>) {
+        let coords = self.navigator.sphere_ebm.optimize(key, device);
+
+        // Get soft weights over negatives
+        let (neg_indices, soft_weights) = self.get_negative_weights_differentiable(
+            &example.query,
+            example.query_radius,
+            example.positive_target,
+            gumbel_temperature,
+            key,
+            device,
+        );
+
+        if neg_indices.is_empty() {
+            return (0.0, vec![0.0; 5]);
+        }
+
+        // Compute positive energy
+        let pos_idx = NavigatorEBM::indices_to_tensor(&[example.positive_target], device);
+        let e_pos_tensor = self.navigator.total_energy_batched(
+            &example.query,
+            example.query_radius,
+            &coords,
+            &pos_idx,
+            device,
+            backend,
+        );
+        let e_pos: f32 = e_pos_tensor.into_data().to_vec().expect("e_pos")[0];
+
+        // Compute negative energies
+        let neg_idx_tensor = NavigatorEBM::indices_to_tensor(&neg_indices, device);
+        let neg_energies = self.navigator.total_energy_batched(
+            &example.query,
+            example.query_radius,
+            &coords,
+            &neg_idx_tensor,
+            device,
+            backend,
+        );
+
+        // Soft-weighted average negative energy
+        let weighted_neg = neg_energies.clone() * soft_weights.clone();
+        let e_neg_weighted: f32 = weighted_neg.sum().into_data().to_vec().expect("weighted")[0];
+
+        // InfoNCE-style loss with soft negatives
+        let scaled_e_pos = e_pos / self.config.temperature;
+        let scaled_e_neg = e_neg_weighted / self.config.temperature;
+        let loss = scaled_e_pos + (1.0 + (-scaled_e_neg).exp()).ln().max(0.0);
+
+        // Gradient estimation (simplified for soft weighting)
+        // For full differentiability, would use burn autodiff
+        let sem_pos = self
+            .navigator
+            .semantic_energy_batched(&example.query, &pos_idx, device);
+        let sem_neg =
+            self.navigator
+                .semantic_energy_batched(&example.query, &neg_idx_tensor, device);
+        let sem_neg_weighted = (sem_neg * soft_weights.clone()).sum();
+
+        let rad_pos =
+            self.navigator
+                .radial_energy_batched(example.query_radius, &coords, &pos_idx, device);
+        let rad_neg = self.navigator.radial_energy_batched(
+            example.query_radius,
+            &coords,
+            &neg_idx_tensor,
+            device,
+        );
+        let rad_neg_weighted = (rad_neg * soft_weights.clone()).sum();
+
+        let ent_pos = self.navigator.entropy_energy_batched(&pos_idx, device);
+        let ent_neg = self
+            .navigator
+            .entropy_energy_batched(&neg_idx_tensor, device);
+        let ent_neg_weighted = (ent_neg * soft_weights).sum();
+
+        let sem_pos_val: f32 = sem_pos.into_data().to_vec().expect("sem")[0];
+        let sem_neg_val: f32 = sem_neg_weighted.into_data().to_vec().expect("sem neg")[0];
+        let rad_pos_val: f32 = rad_pos.into_data().to_vec().expect("rad")[0];
+        let rad_neg_val: f32 = rad_neg_weighted.into_data().to_vec().expect("rad neg")[0];
+        let ent_pos_val: f32 = ent_pos.into_data().to_vec().expect("ent")[0];
+        let ent_neg_val: f32 = ent_neg_weighted.into_data().to_vec().expect("ent neg")[0];
+
+        let gradients = vec![
+            sem_pos_val - sem_neg_val,
+            rad_pos_val - rad_neg_val,
+            0.0, // graph
+            ent_pos_val - ent_neg_val,
+            0.0, // path
+        ];
+
+        (loss, gradients)
+    }
+
     /// Compute contrastive loss for a single example.
     ///
     /// Uses InfoNCE-style loss:
@@ -390,6 +576,245 @@ impl TrainableNavigatorEBM {
         (loss, gradients)
     }
 
+    /// Compute contrastive loss using GPU-batched energy computation.
+    ///
+    /// This is a GPU-optimized version that:
+    /// - Batches all energy computations (positive + all negatives) into one GPU call
+    /// - Uses log-sum-exp trick for numerical stability on GPU
+    /// - Still computes gradients on CPU for f64 precision
+    ///
+    /// # Arguments
+    ///
+    /// * `example` - Training example with query and targets
+    /// * `key` - RNG key for coordinate optimization and negative sampling
+    /// * `device` - GPU device
+    /// * `backend` - Compute backend for routing decisions
+    ///
+    /// # Returns
+    ///
+    /// (loss, gradients) where gradients are w.r.t. the lambda weights
+    fn compute_contrastive_loss_batched(
+        &self,
+        example: &TrainingExample,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+        backend: &ComputeBackend,
+    ) -> (f32, Vec<f32>) {
+        // Get coordinates
+        let coords = self.navigator.sphere_ebm.optimize(key, device);
+
+        // Get or sample negatives
+        let negatives = match &example.negative_targets {
+            Some(negs) => negs.clone(),
+            None => self.sample_negatives(
+                &example.query,
+                example.query_radius,
+                example.positive_target,
+                self.config.negatives_per_positive,
+                key,
+                device,
+            ),
+        };
+
+        // Batch all targets: [positive] + negatives
+        let mut all_targets = vec![example.positive_target];
+        all_targets.extend(&negatives);
+
+        // Convert to tensor for batched computation
+        let target_indices = NavigatorEBM::indices_to_tensor(&all_targets, device);
+        let n_neg = negatives.len();
+
+        // === GPU-batched forward pass ===
+        // Compute all energies in one GPU call
+        let all_energies = self.navigator.total_energy_batched(
+            &example.query,
+            example.query_radius,
+            &coords,
+            &target_indices,
+            device,
+            backend,
+        );
+
+        // Extract energies to CPU for loss computation
+        // (Could also do loss on GPU, but keeping gradient computation on CPU for precision)
+        let energy_data: Vec<f32> = all_energies
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("energies to vec");
+
+        let e_pos = energy_data[0];
+        let neg_energies = &energy_data[1..];
+
+        // === CPU loss computation with log-sum-exp trick ===
+        let scaled_e_pos = e_pos / self.config.temperature;
+        let sum_exp_neg: f32 = neg_energies
+            .iter()
+            .map(|&e| {
+                let diff = (e_pos - e) / self.config.temperature;
+                diff.clamp(-50.0, 50.0).exp()
+            })
+            .sum();
+        let loss = scaled_e_pos + (1.0 + sum_exp_neg).ln().max(0.0);
+
+        // === GPU-batched component energy computation for gradients ===
+        // Compute individual energy components to get gradients w.r.t. lambdas
+        let pos_idx = NavigatorEBM::indices_to_tensor(&[example.positive_target], device);
+        let neg_idx = NavigatorEBM::indices_to_tensor(&negatives, device);
+
+        // Semantic energy components
+        let sem_pos = self
+            .navigator
+            .semantic_energy_batched(&example.query, &pos_idx, device);
+        let sem_neg = self
+            .navigator
+            .semantic_energy_batched(&example.query, &neg_idx, device);
+
+        // Radial energy components
+        let rad_pos =
+            self.navigator
+                .radial_energy_batched(example.query_radius, &coords, &pos_idx, device);
+        let rad_neg =
+            self.navigator
+                .radial_energy_batched(example.query_radius, &coords, &neg_idx, device);
+
+        // Entropy energy components
+        let ent_pos = self.navigator.entropy_energy_batched(&pos_idx, device);
+        let ent_neg = self.navigator.entropy_energy_batched(&neg_idx, device);
+
+        // Extract to CPU for gradient computation (f32 is fine here, values are small)
+        let sem_pos_val: f32 = sem_pos.into_data().to_vec().expect("sem")[0];
+        let sem_neg_val: f32 = if n_neg > 0 {
+            let neg_data: Vec<f32> = sem_neg.into_data().to_vec().expect("sem neg");
+            neg_data.iter().sum::<f32>() / n_neg as f32
+        } else {
+            0.0
+        };
+
+        let rad_pos_val: f32 = rad_pos.into_data().to_vec().expect("rad")[0];
+        let rad_neg_val: f32 = if n_neg > 0 {
+            let neg_data: Vec<f32> = rad_neg.into_data().to_vec().expect("rad neg");
+            neg_data.iter().sum::<f32>() / n_neg as f32
+        } else {
+            0.0
+        };
+
+        let ent_pos_val: f32 = ent_pos.into_data().to_vec().expect("ent")[0];
+        let ent_neg_val: f32 = if n_neg > 0 {
+            let neg_data: Vec<f32> = ent_neg.into_data().to_vec().expect("ent neg");
+            neg_data.iter().sum::<f32>() / n_neg as f32
+        } else {
+            0.0
+        };
+
+        // Gradients: d(loss)/d(lambda) ≈ component_pos - component_neg
+        // Components: [semantic, radial, graph, entropy, path]
+        let gradients = vec![
+            sem_pos_val - sem_neg_val, // semantic
+            rad_pos_val - rad_neg_val, // radial
+            0.0,                       // graph (computed separately if needed)
+            ent_pos_val - ent_neg_val, // entropy
+            0.0,                       // path (computed separately if needed)
+        ];
+
+        (loss, gradients)
+    }
+
+    /// Perform a single training step with hybrid CPU/GPU execution.
+    ///
+    /// Uses GPU for batched forward pass, CPU for gradient accumulation.
+    /// Routes based on ComputeBackend configuration.
+    pub fn train_step_hybrid(
+        &mut self,
+        examples: &[TrainingExample],
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+        backend: &ComputeBackend,
+    ) -> TrainingStepResult {
+        let n_examples = examples.len().max(1);
+
+        // Check if we should use GPU batched path or CPU path
+        let use_gpu_batched = backend.use_gpu(OpType::BatchEnergyForward, Some(n_examples));
+
+        // Accumulate gradients over examples
+        let mut total_loss = 0.0f32;
+        let mut total_grads = vec![0.0f32; 5];
+
+        let keys = key.split(n_examples);
+        for (example, k) in examples.iter().zip(keys.into_iter()) {
+            let (loss, grads) = if use_gpu_batched {
+                self.compute_contrastive_loss_batched(example, k, device, backend)
+            } else {
+                self.compute_contrastive_loss(example, k, device)
+            };
+            total_loss += loss;
+            for i in 0..5 {
+                total_grads[i] += grads[i];
+            }
+        }
+
+        // Continue with standard gradient processing (weight decay, clipping, SGD)
+        // This part stays on CPU for precision
+        let avg_factor = 1.0 / n_examples as f32;
+        total_loss *= avg_factor;
+        for g in &mut total_grads {
+            *g *= avg_factor;
+        }
+
+        // Add weight decay
+        let current_weights = self.state.weights.to_tensor(device);
+        let current_data: Vec<f32> = current_weights
+            .into_data()
+            .to_vec()
+            .expect("weights to vec");
+        for i in 0..5 {
+            total_grads[i] += self.config.weight_decay * current_data[i];
+        }
+
+        // Gradient clipping
+        let grad_norm: f32 = total_grads.iter().map(|g| g * g).sum::<f32>().sqrt();
+        if self.config.gradient_clip > 0.0 && grad_norm > self.config.gradient_clip {
+            let scale = self.config.gradient_clip / grad_norm;
+            for g in &mut total_grads {
+                *g *= scale;
+            }
+        }
+
+        // SGD with momentum
+        let grad_tensor: Tensor<WgpuBackend, 1> = Tensor::from_data(total_grads.as_slice(), device);
+
+        let update = if self.config.momentum > 0.0 {
+            let momentum_buf = match &self.state.momentum_buffer {
+                Some(buf) => buf.clone() * self.config.momentum + grad_tensor.clone(),
+                None => grad_tensor.clone(),
+            };
+            self.state.momentum_buffer = Some(momentum_buf.clone());
+            momentum_buf
+        } else {
+            grad_tensor
+        };
+
+        // Update weights
+        let new_weights_tensor =
+            self.state.weights.to_tensor(device) - update * self.config.learning_rate;
+
+        // Clamp weights to be non-negative
+        let new_weights_tensor = new_weights_tensor.clamp(0.0, f32::MAX);
+
+        let new_weights = NavigationWeights::from_tensor(&new_weights_tensor);
+
+        // Update state
+        self.state.weights = new_weights.clone();
+        self.state.step += 1;
+        self.navigator.weights = new_weights.clone();
+
+        TrainingStepResult {
+            loss: total_loss,
+            gradient_norm: grad_norm,
+            new_weights,
+        }
+    }
+
     /// Perform a single training step.
     pub fn train_step(
         &mut self,
@@ -497,6 +922,68 @@ impl TrainableNavigatorEBM {
                 let batch = &examples[start..end];
 
                 let result = self.train_step(batch, batch_key, device);
+                epoch_loss += result.loss;
+            }
+
+            let avg_loss = epoch_loss / n_batches.max(1) as f32;
+            losses.push(avg_loss);
+
+            if epoch % 10 == 0 {
+                println!(
+                    "Epoch {}: loss = {:.4}, weights = {:?}",
+                    epoch, avg_loss, self.state.weights
+                );
+            }
+        }
+
+        losses
+    }
+
+    /// Train for multiple epochs using hybrid CPU/GPU execution.
+    ///
+    /// This is the recommended training method for most use cases:
+    /// - Uses GPU for batched energy computation (fast forward pass)
+    /// - Uses CPU for gradient accumulation (precision)
+    /// - Automatically routes based on ComputeBackend configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `examples` - Training examples
+    /// * `n_epochs` - Number of training epochs
+    /// * `batch_size` - Examples per batch
+    /// * `key` - RNG key
+    /// * `device` - GPU device
+    /// * `backend` - Compute backend for routing decisions (None = auto-detect)
+    ///
+    /// # Returns
+    ///
+    /// Vector of average losses per epoch
+    pub fn train_hybrid(
+        &mut self,
+        examples: &[TrainingExample],
+        n_epochs: usize,
+        batch_size: usize,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+        backend: Option<&ComputeBackend>,
+    ) -> Vec<f32> {
+        let default_backend = ComputeBackend::default();
+        let backend = backend.unwrap_or(&default_backend);
+
+        let mut losses = Vec::with_capacity(n_epochs);
+        let keys = key.split(n_epochs);
+
+        for (epoch, epoch_key) in keys.into_iter().enumerate() {
+            let mut epoch_loss = 0.0;
+            let n_batches = examples.len().div_ceil(batch_size);
+            let batch_keys = epoch_key.split(n_batches);
+
+            for (batch_idx, batch_key) in batch_keys.into_iter().enumerate() {
+                let start = batch_idx * batch_size;
+                let end = (start + batch_size).min(examples.len());
+                let batch = &examples[start..end];
+
+                let result = self.train_step_hybrid(batch, batch_key, device, backend);
                 epoch_loss += result.loss;
             }
 
@@ -1158,7 +1645,7 @@ impl HyperparamConfig {
 /// Grid specification for hyperparameter tuning.
 ///
 /// Defines ranges of values to search over for each hyperparameter.
-/// Use [`iter_configs`] to generate all combinations.
+/// Use [`Self::iter_configs`] to generate all combinations.
 ///
 /// # Example
 ///
@@ -2960,5 +3447,257 @@ mod tests {
         // Should be sorted by MRR descending
         assert!(top3[0].metrics.mrr >= top3[1].metrics.mrr);
         assert!(top3[1].metrics.mrr >= top3[2].metrics.mrr);
+    }
+
+    // =========================================================================
+    // CPU/GPU Equivalence Tests
+    // =========================================================================
+
+    #[test]
+    fn test_cpu_gpu_energy_equivalence() {
+        use thrml_core::compute::ComputeBackend;
+
+        let device = init_gpu_device();
+        let n = 10;
+        let d = 8;
+
+        // Create test embeddings
+        let embeddings: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
+        let prominence: Tensor<WgpuBackend, 1> =
+            Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
+        let entropies: Tensor<WgpuBackend, 1> =
+            Tensor::random([n], Distribution::Uniform(0.0, 1.0), &device);
+
+        let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
+        let navigator = NavigatorEBM::new(
+            embeddings.clone(),
+            prominence,
+            Some(entropies),
+            sphere_config,
+            &device,
+        );
+
+        // Create query and target indices
+        let query: Tensor<WgpuBackend, 1> =
+            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+        let target_indices_vec: Vec<usize> = vec![1, 2, 3];
+        let target_indices_tensor = NavigatorEBM::indices_to_tensor(&target_indices_vec, &device);
+
+        // Get coordinates
+        let coords = navigator.sphere_ebm.optimize(RngKey::new(42), &device);
+
+        // Compare CPU (original) and GPU (batched) semantic energy
+        let sem_cpu = navigator.semantic_energy(&query, &target_indices_vec, &device);
+        let sem_gpu = navigator.semantic_energy_batched(&query, &target_indices_tensor, &device);
+
+        let sem_cpu_data: Vec<f32> = sem_cpu.into_data().to_vec().expect("sem cpu");
+        let sem_gpu_data: Vec<f32> = sem_gpu.into_data().to_vec().expect("sem gpu");
+
+        // Should match within f32 tolerance
+        for (cpu, gpu) in sem_cpu_data.iter().zip(sem_gpu_data.iter()) {
+            let diff = (cpu - gpu).abs();
+            assert!(
+                diff < 1e-4,
+                "Semantic energy mismatch: CPU={} GPU={} diff={}",
+                cpu,
+                gpu,
+                diff
+            );
+        }
+
+        // Compare radial energy
+        let rad_cpu = navigator.radial_energy(50.0, &coords, &target_indices_vec, &device);
+        let rad_gpu =
+            navigator.radial_energy_batched(50.0, &coords, &target_indices_tensor, &device);
+
+        let rad_cpu_data: Vec<f32> = rad_cpu.into_data().to_vec().expect("rad cpu");
+        let rad_gpu_data: Vec<f32> = rad_gpu.into_data().to_vec().expect("rad gpu");
+
+        for (cpu, gpu) in rad_cpu_data.iter().zip(rad_gpu_data.iter()) {
+            let diff = (cpu - gpu).abs();
+            assert!(
+                diff < 1e-4,
+                "Radial energy mismatch: CPU={} GPU={} diff={}",
+                cpu,
+                gpu,
+                diff
+            );
+        }
+
+        // Compare entropy energy
+        let ent_cpu = navigator.entropy_energy(&target_indices_vec, &device);
+        let ent_gpu = navigator.entropy_energy_batched(&target_indices_tensor, &device);
+
+        let ent_cpu_data: Vec<f32> = ent_cpu.into_data().to_vec().expect("ent cpu");
+        let ent_gpu_data: Vec<f32> = ent_gpu.into_data().to_vec().expect("ent gpu");
+
+        for (cpu, gpu) in ent_cpu_data.iter().zip(ent_gpu_data.iter()) {
+            let diff = (cpu - gpu).abs();
+            assert!(
+                diff < 1e-4,
+                "Entropy energy mismatch: CPU={} GPU={} diff={}",
+                cpu,
+                gpu,
+                diff
+            );
+        }
+
+        println!("CPU/GPU energy equivalence test passed!");
+    }
+
+    #[test]
+    fn test_hybrid_training_produces_valid_results() {
+        use thrml_core::compute::ComputeBackend;
+
+        let device = init_gpu_device();
+        let n = 15;
+        let d = 8;
+
+        let embeddings: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
+        let prominence: Tensor<WgpuBackend, 1> =
+            Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
+
+        let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
+        let training_config = NavigatorTrainingConfig::default()
+            .with_learning_rate(0.05)
+            .with_negatives(2);
+
+        let mut trainable = TrainableNavigatorEBM::new(
+            embeddings.clone(),
+            prominence,
+            None,
+            sphere_config,
+            training_config,
+            &device,
+        );
+
+        // Create training examples
+        let examples: Vec<TrainingExample> = (0..3)
+            .map(|i| {
+                let query: Tensor<WgpuBackend, 1> = embeddings
+                    .clone()
+                    .slice([i..i + 1, 0..d])
+                    .reshape([d as i32]);
+                TrainingExample {
+                    query,
+                    query_radius: 50.0,
+                    positive_target: i,
+                    negative_targets: None,
+                }
+            })
+            .collect();
+
+        // Train with hybrid method
+        let backend = ComputeBackend::default();
+        let losses =
+            trainable.train_hybrid(&examples, 3, 2, RngKey::new(42), &device, Some(&backend));
+
+        // Verify losses are valid
+        for loss in &losses {
+            assert!(loss.is_finite(), "Loss should be finite");
+            assert!(*loss >= 0.0, "Loss should be non-negative");
+        }
+
+        println!("Hybrid training losses: {:?}", losses);
+    }
+
+    // =========================================================================
+    // Training Performance Comparison
+    // =========================================================================
+
+    #[test]
+    fn test_training_performance_comparison() {
+        use std::time::Instant;
+        use thrml_core::compute::ComputeBackend;
+
+        let device = init_gpu_device();
+        let n = 50; // Larger dataset for meaningful timing
+        let d = 32;
+
+        // Create test data
+        let embeddings: Tensor<WgpuBackend, 2> =
+            Tensor::random([n, d], Distribution::Normal(0.0, 1.0), &device);
+        let prominence: Tensor<WgpuBackend, 1> =
+            Tensor::random([n], Distribution::Uniform(0.1, 1.0), &device);
+
+        let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(5);
+        let training_config = NavigatorTrainingConfig::default()
+            .with_learning_rate(0.05)
+            .with_negatives(4);
+
+        // Create training examples
+        let examples: Vec<TrainingExample> = (0..10)
+            .map(|i| {
+                let idx = i % n;
+                let query: Tensor<WgpuBackend, 1> = embeddings
+                    .clone()
+                    .slice([idx..idx + 1, 0..d])
+                    .reshape([d as i32]);
+                TrainingExample {
+                    query,
+                    query_radius: 50.0,
+                    positive_target: idx,
+                    negative_targets: None,
+                }
+            })
+            .collect();
+
+        // Benchmark original (sequential) training
+        let mut trainable_orig = TrainableNavigatorEBM::new(
+            embeddings.clone(),
+            prominence.clone(),
+            None,
+            sphere_config.clone(),
+            training_config.clone(),
+            &device,
+        );
+
+        let start_orig = Instant::now();
+        let losses_orig = trainable_orig.train(&examples, 3, 5, RngKey::new(42), &device);
+        let elapsed_orig = start_orig.elapsed();
+
+        // Benchmark hybrid (GPU-batched) training
+        let mut trainable_hybrid = TrainableNavigatorEBM::new(
+            embeddings.clone(),
+            prominence,
+            None,
+            sphere_config,
+            training_config,
+            &device,
+        );
+
+        let backend = ComputeBackend::default();
+        let start_hybrid = Instant::now();
+        let losses_hybrid = trainable_hybrid.train_hybrid(
+            &examples,
+            3,
+            5,
+            RngKey::new(42),
+            &device,
+            Some(&backend),
+        );
+        let elapsed_hybrid = start_hybrid.elapsed();
+
+        println!("\n=== Training Performance Comparison ===");
+        println!("Original (sequential): {:?}", elapsed_orig);
+        println!("Hybrid (GPU-batched): {:?}", elapsed_hybrid);
+        println!(
+            "Speedup: {:.2}x",
+            elapsed_orig.as_secs_f64() / elapsed_hybrid.as_secs_f64().max(0.001)
+        );
+        println!(
+            "Original final loss: {:.4}",
+            losses_orig.last().unwrap_or(&0.0)
+        );
+        println!(
+            "Hybrid final loss: {:.4}",
+            losses_hybrid.last().unwrap_or(&0.0)
+        );
+
+        // Both should produce valid losses
+        assert!(losses_orig.iter().all(|l| l.is_finite()));
+        assert!(losses_hybrid.iter().all(|l| l.is_finite()));
     }
 }

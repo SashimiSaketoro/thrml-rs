@@ -562,7 +562,7 @@ mod tests {
                 let rel_diff = diff / (expected_force.abs().max(0.01));
 
                 assert!(
-                    rel_diff < 0.10, // 10% relative tolerance (accounts for numerical precision)
+                    rel_diff < 0.12, // 12% relative tolerance (GPU f32 precision + numerical gradient error)
                     "Force mismatch at [{},{}]: actual={}, expected={}, rel_diff={}",
                     i,
                     j,

@@ -96,6 +96,21 @@ pub enum OpType {
     /// Langevin dynamics step.
     /// GPU-accelerated with periodic renormalization.
     LangevinStep,
+
+    /// Gradient computation for training.
+    /// Precision-sensitive due to accumulation - prefer CPU f64.
+    /// f32 can cause overflow in contrastive divergence gradients.
+    GradientCompute,
+
+    /// Batch energy forward pass.
+    /// Parallel over targets, can use GPU f32 for speed.
+    /// Gradients computed separately on CPU.
+    BatchEnergyForward,
+
+    /// Loss reduction (softmax, logsumexp).
+    /// Overflow-prone with large logits - prefer CPU f64.
+    /// Use log-sum-exp trick if GPU is required.
+    LossReduction,
 }
 
 /// Compute backend selection strategy.
@@ -173,6 +188,9 @@ impl Default for ComputeBackend {
                     OpType::ArcTrig,
                     OpType::ComplexArithmetic,
                     OpType::SmallMatmul,
+                    // Training ops: Metal lacks native f64, use CPU for precision
+                    OpType::GradientCompute,
+                    OpType::LossReduction,
                 ],
                 small_matmul_threshold: 1000,
             }
@@ -180,8 +198,9 @@ impl Default for ComputeBackend {
 
         #[cfg(not(target_os = "macos"))]
         {
-            // Non-macOS: prefer GPU for everything
-            ComputeBackend::GpuOnly
+            // Non-macOS: use Adaptive to handle AMD RDNA (no f64) vs NVIDIA (has f64)
+            // Adaptive routes precision-sensitive ops to CPU, safe for all GPUs
+            ComputeBackend::Adaptive
         }
     }
 }
@@ -241,6 +260,9 @@ impl ComputeBackend {
                 OpType::ArcTrig,
                 OpType::ComplexArithmetic,
                 OpType::SmallMatmul,
+                // Training ops: Metal lacks native f64, use CPU for precision
+                OpType::GradientCompute,
+                OpType::LossReduction,
             ],
             small_matmul_threshold: 2000,
         }
@@ -315,13 +337,16 @@ impl ComputeBackend {
                 false
             }
             ComputeBackend::Adaptive => {
-                // Adaptive logic: always use CPU for precision-sensitive ops
+                // Adaptive logic: use CPU for precision-sensitive ops
+                // This includes training ops that can overflow in f32
                 matches!(
                     op,
                     OpType::IsingSampling
                         | OpType::SphericalHarmonics
                         | OpType::ArcTrig
                         | OpType::ComplexArithmetic
+                        | OpType::GradientCompute  // f32 accumulation can overflow
+                        | OpType::LossReduction // logsumexp needs f64 for large batches
                 )
             }
         }
@@ -330,6 +355,56 @@ impl ComputeBackend {
     /// Check if an operation should run on GPU
     pub fn use_gpu(&self, op: OpType, size: Option<usize>) -> bool {
         !self.use_cpu(op, size)
+    }
+
+    /// Try GPU operation with automatic CPU fallback.
+    ///
+    /// Executes `gpu_fn` first. If it fails, notifies user and runs `cpu_fn`.
+    /// Returns the result and whether fallback occurred.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let (result, fell_back) = backend.try_gpu_with_fallback(
+    ///     || gpu_energy_compute(&tensor),
+    ///     || cpu_energy_compute_f64(&data),
+    ///     "energy computation",
+    /// );
+    /// ```
+    pub fn try_gpu_with_fallback<T, E, F, G>(
+        &self,
+        gpu_fn: F,
+        cpu_fn: G,
+        op_name: &str,
+    ) -> (T, bool)
+    where
+        F: FnOnce() -> Result<T, E>,
+        G: FnOnce() -> T,
+        E: std::fmt::Display,
+    {
+        match gpu_fn() {
+            Ok(result) => (result, false),
+            Err(e) => {
+                eprintln!("[thrml] GPU {} failed, falling back to CPU: {}", op_name, e);
+                (cpu_fn(), true)
+            }
+        }
+    }
+
+    /// Try GPU operation, fallback to CPU if this backend prefers CPU for the op.
+    ///
+    /// Unlike `try_gpu_with_fallback`, this checks the routing first and only
+    /// attempts GPU if the backend says to use GPU.
+    pub fn run_routed<T, F, G>(&self, op: OpType, size: Option<usize>, gpu_fn: F, cpu_fn: G) -> T
+    where
+        F: FnOnce() -> T,
+        G: FnOnce() -> T,
+    {
+        if self.use_cpu(op, size) {
+            cpu_fn()
+        } else {
+            gpu_fn()
+        }
     }
 }
 

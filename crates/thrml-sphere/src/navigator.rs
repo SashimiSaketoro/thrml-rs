@@ -29,6 +29,7 @@
 
 use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
+use thrml_core::compute::{ComputeBackend, OpType};
 use thrml_core::SphericalCoords;
 use thrml_samplers::RngKey;
 
@@ -772,6 +773,172 @@ impl NavigatorEBM {
         } else {
             total
         }
+    }
+
+    // =========================================================================
+    // Batched GPU Energy Functions (stay entirely on GPU for forward pass)
+    // =========================================================================
+
+    /// Compute semantic energy using batched GPU operations.
+    ///
+    /// Unlike `semantic_energy`, this version:
+    /// - Takes a tensor of indices instead of a slice
+    /// - Uses GPU gather to select target embeddings
+    /// - Computes all cosine similarities in parallel on GPU
+    /// - Never transfers data to CPU
+    ///
+    /// Returns energies as negative cosine similarities (lower = better).
+    pub fn semantic_energy_batched(
+        &self,
+        query_embedding: &Tensor<WgpuBackend, 1>,
+        target_indices: &Tensor<WgpuBackend, 1, burn::tensor::Int>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        let n_targets = target_indices.dims()[0];
+        if n_targets == 0 {
+            return Tensor::zeros([0], device);
+        }
+
+        // Normalize query
+        let query_norm = query_embedding.clone().powf_scalar(2.0).sum().sqrt();
+        let query_normalized = query_embedding.clone() / (query_norm + 1e-8);
+
+        // Gather target embeddings: [n_targets, d]
+        // Use select to get rows by indices
+        let embeddings_2d = self.sphere_ebm.embeddings.clone(); // [n, d]
+        let target_embeddings = embeddings_2d.select(0, target_indices.clone()); // [n_targets, d]
+
+        // Normalize target embeddings along dim 1
+        // sum_dim keeps the dimension, so we need to handle this carefully
+        let target_sq = target_embeddings.clone().powf_scalar(2.0);
+        let target_sum: Tensor<WgpuBackend, 2> = target_sq.sum_dim(1); // [n_targets, 1]
+        let target_norms = target_sum.sqrt(); // [n_targets, 1]
+        let target_normalized = target_embeddings / (target_norms.clone() + 1e-8); // broadcasts [n_targets, d]
+
+        // Cosine similarity via matmul: query [1, d] @ targets^T [d, n_targets] = [1, n_targets]
+        let d = self.sphere_ebm.embedding_dim();
+        let query_2d: Tensor<WgpuBackend, 2> = query_normalized.reshape([1, d as i32]); // [1, d]
+        let similarities_2d = query_2d.matmul(target_normalized.transpose()); // [1, n_targets]
+
+        // Reshape to 1D: [n_targets]
+        let similarities: Tensor<WgpuBackend, 1> = similarities_2d.reshape([n_targets as i32]);
+
+        // Energy is negative similarity
+        similarities.neg()
+    }
+
+    /// Compute radial energy using batched GPU operations.
+    ///
+    /// E_radial(q, t) = (r_t - r_q)² computed entirely on GPU.
+    pub fn radial_energy_batched(
+        &self,
+        query_radius: f32,
+        coords: &SphericalCoords,
+        target_indices: &Tensor<WgpuBackend, 1, burn::tensor::Int>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        let n_targets = target_indices.dims()[0];
+        if n_targets == 0 {
+            return Tensor::zeros([0], device);
+        }
+
+        // Gather target radii
+        let target_radii = coords.r.clone().select(0, target_indices.clone());
+
+        // Compute squared differences
+        let diff = target_radii.sub_scalar(query_radius);
+        diff.clone() * diff
+    }
+
+    /// Compute entropy energy using batched GPU operations.
+    ///
+    /// E_entropy(t) = -H(t) computed entirely on GPU.
+    pub fn entropy_energy_batched(
+        &self,
+        target_indices: &Tensor<WgpuBackend, 1, burn::tensor::Int>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        let n_targets = target_indices.dims()[0];
+        if n_targets == 0 {
+            return Tensor::zeros([0], device);
+        }
+
+        match &self.entropies {
+            Some(ent) => {
+                // Gather entropies and negate (lower entropy = lower energy)
+                ent.clone().select(0, target_indices.clone()).neg()
+            }
+            None => Tensor::zeros([n_targets], device),
+        }
+    }
+
+    /// Compute total navigation energy using batched GPU operations.
+    ///
+    /// This is the GPU-optimized version of `total_energy` that stays entirely
+    /// on GPU for the forward pass. Use this when training or when you need
+    /// gradients.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_indices` - Tensor of target indices (GPU tensor)
+    /// * `backend` - Compute backend for CPU/GPU routing decisions
+    ///
+    /// For path/graph energy, use the scalar addition after this returns.
+    pub fn total_energy_batched(
+        &self,
+        query_embedding: &Tensor<WgpuBackend, 1>,
+        query_radius: f32,
+        coords: &SphericalCoords,
+        target_indices: &Tensor<WgpuBackend, 1, burn::tensor::Int>,
+        device: &burn::backend::wgpu::WgpuDevice,
+        backend: &ComputeBackend,
+    ) -> Tensor<WgpuBackend, 1> {
+        let n_targets = target_indices.dims()[0];
+        if n_targets == 0 {
+            return Tensor::zeros([0], device);
+        }
+
+        // Route based on backend - use GPU if allowed for BatchEnergyForward
+        if backend.use_gpu(OpType::BatchEnergyForward, Some(n_targets)) {
+            // GPU path: batched operations
+            let e_semantic = self.semantic_energy_batched(query_embedding, target_indices, device);
+            let e_radial = self.radial_energy_batched(query_radius, coords, target_indices, device);
+            let e_entropy = self.entropy_energy_batched(target_indices, device);
+
+            // Weighted combination (all on GPU)
+            e_semantic.mul_scalar(self.weights.lambda_semantic)
+                + e_radial.mul_scalar(self.weights.lambda_radial)
+                + e_entropy.mul_scalar(self.weights.lambda_entropy)
+        } else {
+            // CPU path: fall back to original implementation
+            // Convert tensor indices to Vec for compatibility
+            let indices_data: Vec<i32> = target_indices
+                .clone()
+                .into_data()
+                .to_vec()
+                .expect("indices to vec");
+            let indices: Vec<usize> = indices_data.iter().map(|&i| i as usize).collect();
+
+            self.total_energy(
+                query_embedding,
+                query_radius,
+                coords,
+                &indices,
+                None,
+                device,
+            )
+        }
+    }
+
+    /// Convert a slice of indices to a GPU tensor.
+    ///
+    /// Helper for transitioning from `&[usize]` to batched tensor operations.
+    pub fn indices_to_tensor(
+        indices: &[usize],
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1, burn::tensor::Int> {
+        let indices_i32: Vec<i32> = indices.iter().map(|&i| i as i32).collect();
+        Tensor::from_data(indices_i32.as_slice(), device)
     }
 
     /// Find targets within a cone aperture.

@@ -178,6 +178,37 @@
 //! println!("Recall@10: {:.4}, MRR: {:.4}", metrics.recall_10, metrics.mrr);
 //! ```
 //!
+//! ### Hybrid Training (Recommended)
+//!
+//! GPU-accelerated training with automatic CPU fallback for precision-sensitive ops:
+//!
+//! ```rust,ignore
+//! use thrml_sphere::TrainableNavigatorEBM;
+//! use thrml_core::ComputeBackend;
+//!
+//! // Train with hybrid CPU/GPU execution (auto-detects backend)
+//! let losses = trainable.train_hybrid(
+//!     &dataset.train,
+//!     50,              // epochs
+//!     16,              // batch_size
+//!     RngKey::new(42),
+//!     &device,
+//!     None,            // auto-detect backend
+//! );
+//!
+//! // Or with explicit Apple Silicon config
+//! let backend = ComputeBackend::apple_silicon();
+//! let losses = trainable.train_hybrid(
+//!     &dataset.train, 50, 16, RngKey::new(42), &device,
+//!     Some(&backend),
+//! );
+//! ```
+//!
+//! The hybrid training method:
+//! - Uses GPU-batched energy computation for fast forward passes
+//! - Routes precision-sensitive gradient ops to CPU (f64) when needed
+//! - Automatically handles Metal/AMD RDNA lack of native f64 support
+//!
 //! ### Hyperparameter Tuning
 //!
 //! Run grid or random search over hyperparameters:

@@ -104,6 +104,53 @@ cargo build --release --features cpu
 - **WGPU backend**: GPU with Metal (macOS) or Vulkan (Linux/Windows) support
 - **CUDA backend**: NVIDIA GPU with CUDA toolkit installed
 
+## Runtime & Hardware Profiles
+
+`thrml-rs` is designed to run from laptops to DGX-class servers. The core crates share a
+common runtime abstraction:
+
+- **`ComputeBackend`**: Selects CPU / GPU / hybrid execution
+- **`PrecisionMode`**: Chooses between `GpuFast`, `CpuPrecise`, or `Adaptive` routing
+- **`OpType`**: Tags operations (Ising sampling, distance, navigator steps) for precision-aware routing
+
+### Hardware Tiers
+
+| Tier | Examples | FP64 | Default Profile |
+|------|----------|------|-----------------|
+| **Apple Silicon** | M1–M4 Pro/Max/Ultra | CPU only | `CpuFp64Strict` - GPU for throughput, CPU for precision |
+| **Consumer GPU** | RTX 3080–5090, RDNA3/4 | Weak | `GpuMixed` - GPU FP32, CPU f64 for corrections |
+| **HPC GPU** | H100, H200, B200, DGX Spark | Native | `GpuHpcFp64` - Full f64 on GPU |
+| **CPU Only** | Servers without GPU | Native | `CpuFp64Strict` - All operations on CPU |
+
+### Usage
+
+```rust
+use thrml_core::compute::{ComputeBackend, RuntimePolicy, OpType};
+
+// Auto-detect hardware and create appropriate backend
+let policy = RuntimePolicy::detect();
+let backend = ComputeBackend::from_policy(&policy);
+
+println!("Detected: {:?}", policy.tier);  // e.g., AppleSilicon
+println!("Profile: {:?}", policy.profile); // e.g., CpuFp64Strict
+
+// Precision-aware routing
+if backend.use_cpu(OpType::IsingSampling, None) {
+    // High-precision CPU f64 path (Apple Silicon, consumer GPU)
+} else {
+    // Fast GPU path (HPC GPUs with native f64)
+}
+```
+
+The default `ComputeBackend::default()` auto-detects your hardware. For explicit control:
+
+```rust
+// Force specific profiles
+let apple = RuntimePolicy::apple_silicon();
+let hpc = RuntimePolicy::nvidia_hopper();  // H100/H200
+let spark = RuntimePolicy::nvidia_spark(); // DGX Spark / GB10
+```
+
 ## Examples
 
 See the [`examples/`](crates/thrml-examples/examples/) directory:
@@ -188,6 +235,74 @@ The `sphere` branch contains an experimental crate for hyperspherical embedding 
 - **Advanced Training**: Hard negative mining, PCD, curriculum learning
 - **Substring Coupling**: Byte-level structure for code/text clustering
 
+### Conceptual Model
+
+`thrml-sphere` treats your embedding space as a thermodynamic object:
+
+- **SphereEBM** runs Langevin "water-filling" dynamics over a hypersphere of embeddings
+- **NavigatorEBM** defines an energy landscape over:
+  - Semantic similarity (embedding distance)
+  - Radial shell alignment
+  - Hypergraph path structure
+  - Entropy / confidence
+  - Path length and budget penalties
+- **MultiConeNavigator** manages multiple "cones" (localized regions of the sphere), each with its own budget:
+  - Concentrate samples around promising ROOTS peaks
+  - Keep some budget for exploration / long-range jumps
+  - Compress inner shells via a ROOTS index (target ~3000:1)
+
+Training uses contrastive divergence variants with persistent particle buffers, hard negative mining, SGLD-based negative sampling, and curriculum schedules for negative difficulty.
+
+### Minimal Example
+
+```rust
+use thrml_core::backend::init_gpu_device;
+use thrml_samplers::RngKey;
+use thrml_sphere::{
+    RuntimeConfig, BudgetConfig, SphereConfig,
+    MultiConeNavigator, RootsConfig,
+};
+
+fn main() {
+    // Auto-detect hardware (Apple Silicon, gaming GPU, HPC, etc.)
+    let runtime = RuntimeConfig::auto();
+    let device = init_gpu_device();
+
+    println!("Hardware: {:?}", runtime.policy.tier);
+    println!("Memory budget: {:.1} GB", runtime.budget_gb());
+
+    // Configure sphere + navigator
+    let sphere_cfg = SphereConfig::default();
+    let roots_cfg = RootsConfig::default()
+        .with_partitions(64)
+        .with_default_substring_coupling();
+
+    let budget = runtime.budget
+        .with_max_cones(8)
+        .with_peak_threshold(0.15);
+
+    // Initialize navigator (requires embeddings from BLT or other source)
+    // let navigator = MultiConeNavigator::from_sphere_ebm_with_bytes(
+    //     &sphere_ebm, &bytes, roots_cfg, budget, RngKey::new(42), &device,
+    // );
+
+    // Navigate - cones spawn automatically from ROOTS peaks
+    // let result = navigator.navigate_multi_cone(query, 50.0, 10, RngKey::new(123), &device);
+}
+```
+
+This uses the same `RuntimeConfig` / `ComputeBackend` system as the core crates, so precision-sensitive operations route correctly based on your hardware.
+
+### BLT / Byte-Latent Integration
+
+On this branch, `thrml-sphere` is designed to work with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn) as a full pipeline:
+
+- **`blt-burn`** provides the byte-latent transformer front-end and patch-level embeddings
+- **`thrml-sphere`** provides the hyperspherical navigator and ROOTS index
+- **`MultiConeNavigator`** can be used as a backend for different frontends (BLT or others) as long as they provide compatible embedding tensors
+
+The pipeline is modular: you can swap in different encoders without touching the navigator or thermodynamic core.
+
 ### Using the sphere branch
 
 ```bash
@@ -199,4 +314,4 @@ git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
 thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
 ```
 
-See the [sphere branch documentation](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/docs/api/sphere.md) for full API reference.
+See the [sphere branch documentation](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) for full API reference.

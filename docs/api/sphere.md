@@ -7,7 +7,7 @@ The `thrml-sphere` crate provides hyperspherical embedding optimization, ROOTS i
 ```
 thrml-sphere/
 ├── sphere_ebm.rs      # Core sphere optimization model
-├── navigator.rs       # Multi-cone EBM navigation
+├── navigator.rs       # Multi-cone EBM navigation + RuntimeConfig
 ├── roots.rs           # ROOTS compressed index layer
 ├── training.rs        # Training infrastructure
 ├── contrastive.rs     # Advanced CD techniques
@@ -17,8 +17,27 @@ thrml-sphere/
 ├── langevin.rs        # Sphere-specific Langevin dynamics
 ├── hypergraph.rs      # Graph connectivity
 ├── loader.rs          # SafeTensors file loading
-├── compute.rs         # Hybrid CPU/GPU backend
+├── compute.rs         # Hybrid CPU/GPU backend + text primitives
+├── similarity.rs      # GPU similarity (re-exports from thrml-core)
 └── lasing.rs          # Coherence-driven dynamics
+```
+
+### Re-exported Primitives
+
+`thrml-sphere` re-exports useful primitives from core crates:
+
+```rust
+// Hardware-aware runtime
+pub use thrml_core::compute::{HardwareTier, PrecisionProfile, RuntimePolicy};
+
+// Generalized metrics (used internally by evaluation.rs)
+pub use thrml_core::metrics::{evaluate_retrieval, RetrievalMetrics};
+
+// Text similarity primitives
+pub use thrml_core::text::{ngram_hashes, RollingHash, TextSimilarityConfig};
+
+// Max-cut graph partitioning
+pub use thrml_samplers::maxcut::{cut_value, maxcut_gibbs, maxcut_multistart};
 ```
 
 ---
@@ -180,7 +199,47 @@ pub struct BudgetConfig {
 // Presets
 let dev = BudgetConfig::dev();           // 128MB, 4 cones
 let large = BudgetConfig::large_scale(); // 16GB, 32 cones
+
+// Hardware-aware presets
+let budget = BudgetConfig::for_tier(HardwareTier::AppleSilicon);  // 6GB, 8 cones
+let budget = BudgetConfig::for_tier(HardwareTier::NvidiaHopper);  // 64GB, 32 cones
 ```
+
+### `RuntimeConfig`
+
+Unified configuration that bundles hardware detection with budget allocation:
+
+```rust
+use thrml_sphere::RuntimeConfig;
+
+// Auto-detect everything
+let config = RuntimeConfig::auto();
+
+println!("Hardware: {:?}", config.policy.tier);      // e.g., AppleSilicon
+println!("Profile: {:?}", config.policy.profile);    // e.g., CpuFp64Strict
+println!("Budget: {:.1} GB", config.budget_gb());    // e.g., 6.0
+
+// Access components
+let backend = &config.backend;  // ComputeBackend for routing
+let budget = &config.budget;    // BudgetConfig for navigation
+let sphere = &config.sphere;    // SphereConfig for optimization
+
+// Tier-specific presets
+let hpc = RuntimeConfig::for_tier(HardwareTier::NvidiaHopper);
+let spark = RuntimeConfig::for_tier(HardwareTier::NvidiaSpark);
+```
+
+**Hardware Tiers:**
+
+| Tier | Examples | Memory | Cones | FP64 |
+|------|----------|--------|-------|------|
+| `AppleSilicon` | M1–M4 Pro/Max | 6 GB | 8 | CPU only |
+| `NvidiaConsumer` | RTX 3080–5090 | 8 GB | 12 | Weak |
+| `NvidiaHopper` | H100, H200 | 64 GB | 32 | Native |
+| `NvidiaBlackwell` | B200 | 128 GB | 64 | Native |
+| `NvidiaSpark` | DGX Spark / GB10 | 100 GB | 64 | Native |
+| `AmdRdna` | RX 7900 | 8 GB | 12 | Weak |
+| `CpuOnly` | No GPU | 4 GB | 4 | Native |
 
 ---
 

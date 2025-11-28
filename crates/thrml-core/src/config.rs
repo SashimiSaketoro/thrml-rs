@@ -78,6 +78,59 @@ pub struct PathConfigFile {
     pub base_dir: Option<PathBuf>,
 }
 
+// =============================================================================
+// Runtime Policy Configuration
+// =============================================================================
+
+/// Runtime policy configuration from config file.
+///
+/// Allows overriding auto-detected hardware settings via TOML config.
+///
+/// # Example TOML
+///
+/// ```toml
+/// [runtime]
+/// profile = "gpu-mixed"
+/// real_dtype = "f32"
+/// use_gpu = true
+/// max_rel_error = 1e-4
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RuntimePolicyConfig {
+    /// Override detected profile: "auto", "cpu-fp64-strict", "gpu-mixed", "gpu-hpc-fp64"
+    pub profile: Option<String>,
+    /// Override real dtype: "f32" or "f64"
+    pub real_dtype: Option<String>,
+    /// Override complex dtype: "f32" (complex64) or "f64" (complex128)
+    pub complex_dtype: Option<String>,
+    /// Force GPU usage: true/false (None = auto-detect)
+    pub use_gpu: Option<bool>,
+    /// Maximum acceptable relative error for validation
+    pub max_rel_error: Option<f64>,
+}
+
+/// Hardware-specific overrides in config file.
+///
+/// Allows configuring different policies for specific GPU models.
+///
+/// # Example TOML
+///
+/// ```toml
+/// [hardware."Apple M3 Pro"]
+/// profile = "cpu-fp64-strict"
+/// max_rel_error = 1e-6
+///
+/// [hardware."NVIDIA GeForce RTX 5090"]
+/// profile = "gpu-mixed"
+/// real_dtype = "f32"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HardwareOverrides {
+    /// Overrides keyed by hardware name pattern (e.g., "Apple M*", "NVIDIA GeForce RTX 5090")
+    #[serde(flatten)]
+    pub overrides: std::collections::HashMap<String, RuntimePolicyConfig>,
+}
+
 /// Complete path configuration for THRML
 #[derive(Debug, Clone)]
 pub struct PathConfig {

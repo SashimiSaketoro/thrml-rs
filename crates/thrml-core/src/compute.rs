@@ -65,6 +65,10 @@ pub enum OpType {
     /// Precision-sensitive, benefits from f64 on CPU.
     IsingSampling,
 
+    /// Categorical/softmax sampling (Gumbel-max, Gibbs for discrete vars).
+    /// Precision-sensitive: logit accumulation can overflow in f32.
+    CategoricalSampling,
+
     /// Spherical harmonics computation.
     /// Requires f64 for band limits > 64.
     SphericalHarmonics,
@@ -98,19 +102,396 @@ pub enum OpType {
     LangevinStep,
 
     /// Gradient computation for training.
-    /// Precision-sensitive due to accumulation - prefer CPU f64.
-    /// f32 can cause overflow in contrastive divergence gradients.
+    /// Precision-sensitive: accumulation can overflow in f32.
     GradientCompute,
 
-    /// Batch energy forward pass.
-    /// Parallel over targets, can use GPU f32 for speed.
-    /// Gradients computed separately on CPU.
-    BatchEnergyForward,
-
-    /// Loss reduction (softmax, logsumexp).
-    /// Overflow-prone with large logits - prefer CPU f64.
-    /// Use log-sum-exp trick if GPU is required.
+    /// Loss reduction (sum, mean).
+    /// Precision-sensitive for large batch accumulation.
     LossReduction,
+
+    /// Batched energy computation for forward pass.
+    /// Highly parallel, ideal for GPU.
+    BatchEnergyForward,
+}
+
+// =============================================================================
+// Hardware Tier Classification
+// =============================================================================
+
+/// Hardware tier classification for precision/backend selection.
+///
+/// Classification based on FP64 capabilities:
+/// - Consumer GPUs (Apple, NVIDIA RTX 30-50, AMD RDNA): weak/no FP64
+/// - Datacenter GPUs (NVIDIA H100/B200): strong FP64
+///
+/// Use `RuntimePolicy::detect()` for automatic hardware detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HardwareTier {
+    /// Apple Silicon M1-M5: Metal backend, no native FP64 on GPU.
+    /// Unified memory enables zero-copy CPU/GPU data sharing.
+    AppleSilicon,
+    
+    /// NVIDIA consumer GPUs: RTX 3080-5090 (Ampere/Ada/Blackwell consumer).
+    /// Compute capability 8.x, 12.x - FP64 is ~1/64 of FP32 throughput.
+    NvidiaConsumer,
+    
+    /// AMD RDNA 3/4: RX 7000-9000 series.
+    /// Optimized for FP32/FP16/INT8, minimal FP64 support.
+    AmdRdna,
+    
+    /// NVIDIA H100/H200 (Hopper): Compute capability 9.0.
+    /// Strong FP64 support for HPC workloads.
+    NvidiaHopper,
+    
+    /// NVIDIA B200/GB200 (Blackwell datacenter): Compute capability 10.0.
+    /// Strong FP64 + FP8/BF16 tensor cores for mixed precision.
+    NvidiaBlackwell,
+    
+    /// CPU-only fallback (no GPU available or disabled).
+    CpuOnly,
+    
+    /// Unknown GPU - use conservative defaults.
+    Unknown,
+}
+
+/// PCI Vendor IDs for GPU detection.
+///
+/// These are standard PCI vendor IDs used to identify GPU manufacturers.
+pub mod vendor_ids {
+    /// NVIDIA Corporation
+    pub const NVIDIA: u32 = 0x10DE;
+    /// Apple Inc.
+    pub const APPLE: u32 = 0x106B;
+    /// Advanced Micro Devices (AMD)
+    pub const AMD: u32 = 0x1002;
+    /// Intel Corporation
+    pub const INTEL: u32 = 0x8086;
+}
+
+// =============================================================================
+// Precision Profile
+// =============================================================================
+
+/// Precision profile for numerical operations.
+///
+/// Maps hardware capabilities to dtype/backend strategy:
+/// - `CpuFp64Strict`: All precision-sensitive math on CPU fp64
+/// - `GpuMixed`: GPU fp32 for bulk, CPU fp64 for precision-sensitive
+/// - `GpuHpcFp64`: GPU fp64/complex128 for HPC-class GPUs
+///
+/// # Recommended Profiles by Hardware
+///
+/// | Hardware | Profile | Reason |
+/// |----------|---------|--------|
+/// | Apple Silicon M1-M5 | `CpuFp64Strict` | No native GPU FP64 |
+/// | NVIDIA RTX 30-50 | `GpuMixed` | FP64 ~1/64 of FP32 |
+/// | AMD RDNA 3/4 | `GpuMixed` | Minimal FP64 support |
+/// | NVIDIA H100/H200 | `GpuHpcFp64` | Strong FP64 support |
+/// | NVIDIA B200/GB200 | `GpuHpcFp64` | Strong FP64 + FP8 |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PrecisionProfile {
+    /// All precision-sensitive operations on CPU with fp64/complex128.
+    /// GPU used only for bulk ops that tolerate fp32.
+    /// Appropriate for: Apple Silicon, NVIDIA consumer, AMD RDNA
+    #[default]
+    CpuFp64Strict,
+    
+    /// Mixed precision: GPU fp32/complex64 for most ops,
+    /// CPU fp64/complex128 for accumulation and critical kernels.
+    /// Appropriate for: Consumer GPUs with good fp32 performance
+    GpuMixed,
+    
+    /// Full GPU fp64/complex128 for core thermodynamic operations.
+    /// CPU used only for orchestration.
+    /// Appropriate for: H100, B200, datacenter GPUs with strong FP64
+    GpuHpcFp64,
+}
+
+// =============================================================================
+// Runtime Policy
+// =============================================================================
+
+use burn::tensor::DType;
+
+/// Runtime policy combining hardware tier, precision profile, and dtype settings.
+///
+/// This is the main configuration struct for precision/backend decisions.
+/// Use `RuntimePolicy::detect()` for automatic configuration based on
+/// detected hardware, or construct manually for explicit control.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use thrml_core::{RuntimePolicy, HardwareTier, PrecisionProfile};
+///
+/// // Auto-detect hardware and create appropriate policy
+/// let policy = RuntimePolicy::detect();
+/// println!("Detected: {:?} with {:?}", policy.tier, policy.profile);
+///
+/// // Or create explicit policy for specific hardware
+/// let policy = RuntimePolicy::nvidia_hopper();
+/// assert_eq!(policy.real_dtype, burn::tensor::DType::F64);
+/// ```
+#[derive(Debug, Clone)]
+pub struct RuntimePolicy {
+    /// Detected or specified hardware tier
+    pub tier: HardwareTier,
+    /// Precision strategy for this hardware
+    pub profile: PrecisionProfile,
+    /// Primary real dtype for computations (F32 or F64)
+    pub real_dtype: DType,
+    /// Complex dtype for wave/phase computations (F32=complex64, F64=complex128)
+    pub complex_dtype: DType,
+    /// Whether to use GPU at all
+    pub use_gpu: bool,
+    /// Allow mixed precision (e.g., fp32 proposals + fp64 corrections)
+    pub allow_mixed_precision: bool,
+    /// Maximum acceptable relative error (for validation)
+    pub max_rel_error: f64,
+}
+
+impl Default for RuntimePolicy {
+    fn default() -> Self {
+        Self::detect()
+    }
+}
+
+impl RuntimePolicy {
+    /// Apple Silicon M1-M5 policy.
+    ///
+    /// Routes precision-sensitive operations to CPU while using GPU
+    /// for bulk operations. Takes advantage of unified memory.
+    pub fn apple_silicon() -> Self {
+        Self {
+            tier: HardwareTier::AppleSilicon,
+            profile: PrecisionProfile::CpuFp64Strict,
+            real_dtype: DType::F32, // GPU ops use f32
+            complex_dtype: DType::F32, // complex64 on GPU, complex128 on CPU
+            use_gpu: true,
+            allow_mixed_precision: true,
+            max_rel_error: 1e-6,
+        }
+    }
+    
+    /// NVIDIA consumer GPU policy (RTX 3080-5090).
+    ///
+    /// Uses GPU for most operations but routes precision-sensitive
+    /// ops to CPU due to weak FP64 throughput (~1/64 of FP32).
+    pub fn nvidia_consumer() -> Self {
+        Self {
+            tier: HardwareTier::NvidiaConsumer,
+            profile: PrecisionProfile::GpuMixed,
+            real_dtype: DType::F32,
+            complex_dtype: DType::F32,
+            use_gpu: true,
+            allow_mixed_precision: true,
+            max_rel_error: 1e-4,
+        }
+    }
+    
+    /// AMD RDNA 3/4 policy (RX 7000-9000 series).
+    ///
+    /// Similar to NVIDIA consumer - good FP32/FP16, weak FP64.
+    pub fn amd_rdna() -> Self {
+        Self {
+            tier: HardwareTier::AmdRdna,
+            profile: PrecisionProfile::GpuMixed,
+            real_dtype: DType::F32,
+            complex_dtype: DType::F32,
+            use_gpu: true,
+            allow_mixed_precision: true,
+            max_rel_error: 1e-4,
+        }
+    }
+    
+    /// NVIDIA H100/H200 (Hopper) policy.
+    ///
+    /// Full GPU fp64 for core thermodynamic operations.
+    /// Strong FP64 support allows GPU-native double precision.
+    pub fn nvidia_hopper() -> Self {
+        Self {
+            tier: HardwareTier::NvidiaHopper,
+            profile: PrecisionProfile::GpuHpcFp64,
+            real_dtype: DType::F64,
+            complex_dtype: DType::F64, // complex128
+            use_gpu: true,
+            allow_mixed_precision: true,
+            max_rel_error: 1e-10,
+        }
+    }
+    
+    /// NVIDIA B200/GB200 (Blackwell datacenter) policy.
+    ///
+    /// Full GPU fp64 with optional FP8/BF16 for mixed precision proposals.
+    pub fn nvidia_blackwell() -> Self {
+        Self {
+            tier: HardwareTier::NvidiaBlackwell,
+            profile: PrecisionProfile::GpuHpcFp64,
+            real_dtype: DType::F64,
+            complex_dtype: DType::F64,
+            use_gpu: true,
+            allow_mixed_precision: true, // Can use FP8/BF16 for proposals
+            max_rel_error: 1e-10,
+        }
+    }
+    
+    /// CPU-only policy.
+    ///
+    /// Maximum precision, no GPU usage. Useful for debugging or
+    /// systems without GPU support.
+    pub fn cpu_only() -> Self {
+        Self {
+            tier: HardwareTier::CpuOnly,
+            profile: PrecisionProfile::CpuFp64Strict,
+            real_dtype: DType::F64,
+            complex_dtype: DType::F64,
+            use_gpu: false,
+            allow_mixed_precision: false,
+            max_rel_error: 1e-12,
+        }
+    }
+    
+    /// Conservative default for unknown hardware.
+    ///
+    /// Uses CpuFp64Strict profile to be safe, but enables GPU for
+    /// bulk operations that don't require high precision.
+    pub fn conservative_default() -> Self {
+        Self {
+            tier: HardwareTier::Unknown,
+            profile: PrecisionProfile::CpuFp64Strict,
+            real_dtype: DType::F32,
+            complex_dtype: DType::F32,
+            use_gpu: true,
+            allow_mixed_precision: true,
+            max_rel_error: 1e-4,
+        }
+    }
+    
+    /// Create policy for a specific hardware tier.
+    pub fn for_tier(tier: HardwareTier) -> Self {
+        match tier {
+            HardwareTier::AppleSilicon => Self::apple_silicon(),
+            HardwareTier::NvidiaConsumer => Self::nvidia_consumer(),
+            HardwareTier::AmdRdna => Self::amd_rdna(),
+            HardwareTier::NvidiaHopper => Self::nvidia_hopper(),
+            HardwareTier::NvidiaBlackwell => Self::nvidia_blackwell(),
+            HardwareTier::CpuOnly => Self::cpu_only(),
+            HardwareTier::Unknown => Self::conservative_default(),
+        }
+    }
+    
+    /// Platform-based fallback when GPU detection fails.
+    fn platform_fallback_tier() -> HardwareTier {
+        #[cfg(target_os = "macos")]
+        {
+            HardwareTier::AppleSilicon
+        }
+        
+        #[cfg(not(target_os = "macos"))]
+        {
+            HardwareTier::Unknown
+        }
+    }
+    
+    /// Auto-detect hardware and create appropriate policy.
+    ///
+    /// Detection priority:
+    /// 1. WGPU backend - query AdapterInfo vendor/device
+    /// 2. Platform heuristics as fallback
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let policy = RuntimePolicy::detect();
+    /// println!("Running on {:?}", policy.tier);
+    /// ```
+    pub fn detect() -> Self {
+        #[cfg(feature = "gpu")]
+        {
+            if let Some(gpu) = crate::backend::detect_gpu_info() {
+                let tier = Self::classify_hardware(&gpu);
+                return Self::for_tier(tier);
+            }
+        }
+        
+        // Fallback: use platform detection
+        Self::for_tier(Self::platform_fallback_tier())
+    }
+    
+    /// Classify hardware tier from GPU info.
+    #[cfg(feature = "gpu")]
+    fn classify_hardware(gpu: &crate::backend::GpuInfo) -> HardwareTier {
+        match gpu.vendor_id {
+            vendor_ids::APPLE => HardwareTier::AppleSilicon,
+            
+            vendor_ids::NVIDIA => {
+                // Distinguish consumer vs datacenter by device name
+                let name_upper = gpu.name.to_uppercase();
+                
+                if name_upper.contains("H100") || name_upper.contains("H200") {
+                    HardwareTier::NvidiaHopper
+                } else if name_upper.contains("B200") || name_upper.contains("GB200") {
+                    HardwareTier::NvidiaBlackwell
+                } else if name_upper.contains("A100") || name_upper.contains("A800") {
+                    // Ampere datacenter - treat like Hopper
+                    HardwareTier::NvidiaHopper
+                } else {
+                    // RTX consumer cards (3080, 4090, 5090, etc.)
+                    HardwareTier::NvidiaConsumer
+                }
+            }
+            
+            vendor_ids::AMD => HardwareTier::AmdRdna,
+            
+            vendor_ids::INTEL => {
+                // Intel Arc or integrated - treat conservatively
+                HardwareTier::Unknown
+            }
+            
+            _ => HardwareTier::Unknown,
+        }
+    }
+
+    /// Check if this policy is for HPC-class GPU hardware.
+    ///
+    /// Returns true for NVIDIA Hopper (H100/H200) and Blackwell (B200/GB200).
+    /// These GPUs have strong FP64 support and can run precision ops on GPU.
+    pub fn is_hpc_tier(&self) -> bool {
+        matches!(
+            self.tier,
+            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell
+        )
+    }
+
+    /// Check if CUDA f64 is available and should be used.
+    ///
+    /// Returns true when:
+    /// 1. Hardware is HPC-class (Hopper/Blackwell)
+    /// 2. CUDA feature is enabled
+    /// 3. Profile is GpuHpcFp64
+    pub fn cuda_f64_available(&self) -> bool {
+        #[cfg(feature = "cuda")]
+        {
+            self.is_hpc_tier() && self.profile == PrecisionProfile::GpuHpcFp64
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            false
+        }
+    }
+
+    /// Get the recommended dtype for precision-sensitive operations.
+    ///
+    /// - For HPC tiers: F64 (GPU or CPU depending on CUDA availability)
+    /// - For consumer tiers with CpuFp64Strict: F64 on CPU
+    /// - Otherwise: F32
+    pub fn precision_dtype(&self) -> DType {
+        if self.profile == PrecisionProfile::GpuHpcFp64 || self.profile == PrecisionProfile::CpuFp64Strict {
+            DType::F64
+        } else {
+            DType::F32
+        }
+    }
 }
 
 /// Compute backend selection strategy.
@@ -145,7 +526,7 @@ pub enum OpType {
 /// ```
 #[derive(Debug, Clone)]
 pub enum ComputeBackend {
-    /// All operations on GPU (discrete GPU systems).
+    /// All operations on GPU in f32 (discrete GPU systems).
     ///
     /// Best for NVIDIA/AMD discrete GPUs where CPU-GPU memory transfer
     /// is the bottleneck. Runs everything on GPU even if precision suffers.
@@ -172,36 +553,23 @@ pub enum ComputeBackend {
     ///
     /// Routes precision-sensitive operations to CPU regardless of system.
     Adaptive,
+
+    /// HPC GPU with f64 support (H100, B200, etc. via CUDA).
+    ///
+    /// All operations on GPU using f64 precision. Requires CUDA backend.
+    /// This enables true double-precision computation on datacenter GPUs
+    /// without falling back to CPU.
+    ///
+    /// Only available when built with `cuda` feature.
+    #[cfg(feature = "cuda")]
+    GpuHpcF64,
 }
 
-// This impl is not derivable because it has conditional logic for macOS vs other platforms
-#[allow(clippy::derivable_impls)]
+// Default uses RuntimePolicy::detect() for hardware-aware configuration
 impl Default for ComputeBackend {
     fn default() -> Self {
-        // Default to hybrid for Apple Silicon
-        #[cfg(target_os = "macos")]
-        {
-            ComputeBackend::UnifiedHybrid {
-                cpu_ops: vec![
-                    OpType::IsingSampling,
-                    OpType::SphericalHarmonics,
-                    OpType::ArcTrig,
-                    OpType::ComplexArithmetic,
-                    OpType::SmallMatmul,
-                    // Training ops: Metal lacks native f64, use CPU for precision
-                    OpType::GradientCompute,
-                    OpType::LossReduction,
-                ],
-                small_matmul_threshold: 1000,
-            }
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            // Non-macOS: use Adaptive to handle AMD RDNA (no f64) vs NVIDIA (has f64)
-            // Adaptive routes precision-sensitive ops to CPU, safe for all GPUs
-            ComputeBackend::Adaptive
-        }
+        let policy = RuntimePolicy::detect();
+        Self::from_policy(&policy)
     }
 }
 
@@ -237,6 +605,87 @@ impl ComputeBackend {
         ComputeBackend::CpuOnly
     }
 
+    /// Creates a ComputeBackend from a RuntimePolicy.
+    ///
+    /// This is the recommended way to create a backend configuration
+    /// based on detected or specified hardware capabilities.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_core::{ComputeBackend, RuntimePolicy};
+    ///
+    /// let policy = RuntimePolicy::detect();
+    /// let backend = ComputeBackend::from_policy(&policy);
+    /// ```
+    pub fn from_policy(policy: &RuntimePolicy) -> Self {
+        match policy.profile {
+            PrecisionProfile::CpuFp64Strict => {
+                ComputeBackend::UnifiedHybrid {
+                    cpu_ops: vec![
+                        OpType::IsingSampling,
+                        OpType::CategoricalSampling,
+                        OpType::SphericalHarmonics,
+                        OpType::ArcTrig,
+                        OpType::ComplexArithmetic,
+                        OpType::SmallMatmul,
+                        OpType::GradientCompute,
+                        OpType::LossReduction,
+                    ],
+                    small_matmul_threshold: 2000,
+                }
+            }
+            PrecisionProfile::GpuMixed => {
+                ComputeBackend::UnifiedHybrid {
+                    cpu_ops: vec![
+                        OpType::IsingSampling,
+                        OpType::CategoricalSampling,
+                        OpType::SphericalHarmonics,
+                        OpType::GradientCompute,
+                        OpType::LossReduction,
+                    ],
+                    small_matmul_threshold: 1000,
+                }
+            }
+            PrecisionProfile::GpuHpcFp64 => {
+                // HPC GPUs (H100, B200) have strong FP64 support.
+                // When CUDA is available, we can run precision ops on GPU in f64.
+                // Without CUDA, fall back to CPU f64 for precision ops.
+                #[cfg(feature = "cuda")]
+                {
+                    if policy.use_gpu {
+                        // CUDA available - can use GPU f64 for all ops
+                        ComputeBackend::GpuHpcF64
+                    } else {
+                        ComputeBackend::CpuOnly
+                    }
+                }
+                
+                #[cfg(not(feature = "cuda"))]
+                {
+                    // No CUDA - use WGPU for bulk ops, CPU for precision ops
+                    // This is similar to CpuFp64Strict but acknowledges HPC capability
+                    if policy.use_gpu {
+                        ComputeBackend::UnifiedHybrid {
+                            cpu_ops: vec![
+                                OpType::IsingSampling,
+                                OpType::CategoricalSampling,
+                                OpType::SphericalHarmonics,
+                                OpType::ArcTrig,
+                                OpType::ComplexArithmetic,
+                                OpType::GradientCompute,
+                                OpType::LossReduction,
+                            ],
+                            small_matmul_threshold: 512, // Lower threshold - HPC GPUs handle more
+                        }
+                    } else {
+                        ComputeBackend::CpuOnly
+                    }
+                }
+            }
+        }
+    }
+
     /// Creates a hybrid backend optimized for Apple Silicon (M1/M2/M3/M4).
     ///
     /// Routes precision-sensitive operations to CPU while bulk operations
@@ -256,11 +705,11 @@ impl ComputeBackend {
         ComputeBackend::UnifiedHybrid {
             cpu_ops: vec![
                 OpType::IsingSampling,
+                OpType::CategoricalSampling,
                 OpType::SphericalHarmonics,
                 OpType::ArcTrig,
                 OpType::ComplexArithmetic,
                 OpType::SmallMatmul,
-                // Training ops: Metal lacks native f64, use CPU for precision
                 OpType::GradientCompute,
                 OpType::LossReduction,
             ],
@@ -342,6 +791,7 @@ impl ComputeBackend {
                 matches!(
                     op,
                     OpType::IsingSampling
+                        | OpType::CategoricalSampling
                         | OpType::SphericalHarmonics
                         | OpType::ArcTrig
                         | OpType::ComplexArithmetic
@@ -349,6 +799,26 @@ impl ComputeBackend {
                         | OpType::LossReduction // logsumexp needs f64 for large batches
                 )
             }
+            #[cfg(feature = "cuda")]
+            ComputeBackend::GpuHpcF64 => {
+                // HPC GPU with f64 - all ops run on GPU in double precision
+                false
+            }
+        }
+    }
+
+    /// Check if this backend uses GPU f64 (HPC CUDA mode).
+    ///
+    /// When true, precision-sensitive operations should use CUDA f64
+    /// tensors instead of WGPU f32 or CPU f64.
+    pub fn uses_gpu_f64(&self) -> bool {
+        #[cfg(feature = "cuda")]
+        {
+            matches!(self, ComputeBackend::GpuHpcF64)
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            false
         }
     }
 
@@ -551,6 +1021,53 @@ impl HybridConfig {
             cpu_threads: num_cpus::get(),
             enable_overlap: false,
         }
+    }
+
+    /// Create HybridConfig from a RuntimePolicy (recommended).
+    ///
+    /// This creates a complete configuration based on detected or
+    /// specified hardware capabilities.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_core::{HybridConfig, RuntimePolicy};
+    ///
+    /// let policy = RuntimePolicy::detect();
+    /// let config = HybridConfig::from_policy(&policy);
+    /// ```
+    pub fn from_policy(policy: &RuntimePolicy) -> Self {
+        Self {
+            backend: ComputeBackend::from_policy(policy),
+            precision: match policy.profile {
+                PrecisionProfile::CpuFp64Strict => PrecisionMode::CpuPrecise,
+                PrecisionProfile::GpuMixed => PrecisionMode::Adaptive {
+                    sh_band_limit_threshold: 64,
+                    small_angle_threshold: 0.01,
+                    langevin_renorm_interval: 10000,
+                },
+                PrecisionProfile::GpuHpcFp64 => PrecisionMode::GpuFast,
+            },
+            cpu_threads: num_cpus::get().min(8),
+            enable_overlap: policy.use_gpu,
+        }
+    }
+
+    /// Auto-detect hardware and create appropriate config.
+    ///
+    /// This is a convenience method equivalent to:
+    /// `HybridConfig::from_policy(&RuntimePolicy::detect())`
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_core::HybridConfig;
+    ///
+    /// let config = HybridConfig::detect();
+    /// println!("Backend: {:?}", config.backend);
+    /// ```
+    pub fn detect() -> Self {
+        Self::from_policy(&RuntimePolicy::detect())
     }
 }
 

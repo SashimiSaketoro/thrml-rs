@@ -3,6 +3,19 @@
 //! This module provides discrete factor implementations that define energy functions
 //! for models with binary (spin) and categorical variables.
 //!
+//! ## Precision Routing
+//!
+//! When using `factor_energy_routed` with a [`ComputeBackend`], the energy computation
+//! routes accumulation based on hardware capabilities:
+//!
+//! | Hardware | Backend | Precision | Path |
+//! |----------|---------|-----------|------|
+//! | H100/B200 (with `cuda` feature) | `GpuHpcF64` | f64 on GPU | `factor_energy_cuda_f64` |
+//! | Apple Silicon, Consumer NVIDIA | `UnifiedHybrid` | f64 on CPU | `factor_energy_cpu_f64` |
+//! | Any (bulk ops / non-precision) | `GpuOnly` | f32 on GPU | `factor_energy` |
+//!
+//! ## Fused Kernels
+//!
 //! When the `fused-kernels` feature is enabled, the batch_gather operations use
 //! GPU-fused kernels that eliminate intermediate memory allocations.
 
@@ -12,6 +25,7 @@ use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
 use thrml_core::block::Block;
 use thrml_core::blockspec::BlockSpec;
+use thrml_core::compute::{ComputeBackend, OpType};
 use thrml_core::node::Node;
 use thrml_core::state_tree::from_global_state;
 
@@ -576,6 +590,143 @@ impl EBMFactor for DiscreteEBMFactor {
     }
 }
 
+impl DiscreteEBMFactor {
+    /// Compute factor energy with precision routing.
+    ///
+    /// Routes computation based on [`ComputeBackend`] configuration:
+    /// - **CUDA f64**: If `backend.uses_gpu_f64()` and CUDA feature enabled
+    /// - **CPU f64**: If `backend.use_cpu(OpType::EnergyCompute, ...)` returns true
+    /// - **GPU f32**: Default path
+    pub fn factor_energy_routed(
+        &self,
+        backend: &ComputeBackend,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        // Estimate problem size for routing decision
+        let n_elements = self.weights.dims().iter().product::<usize>();
+
+        // Priority 1: CUDA f64 for HPC GPUs
+        #[cfg(feature = "cuda")]
+        if backend.uses_gpu_f64() {
+            return self.factor_energy_cuda_f64(global_state, block_spec, device);
+        }
+
+        // Priority 2: CPU f64 for precision-sensitive computation
+        if backend.use_cpu(OpType::EnergyCompute, Some(n_elements)) {
+            return self.factor_energy_cpu_f64(global_state, block_spec, device);
+        }
+
+        // Priority 3: Standard GPU f32 path
+        self.factor_energy(global_state, block_spec, device)
+    }
+
+    /// Compute factor energy using CPU f64 accumulation.
+    fn factor_energy_cpu_f64(
+        &self,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        // Get spin values from global state
+        let spin_vals = from_global_state(global_state, block_spec, &self.spin_node_groups, device);
+
+        // Get categorical values from global state
+        let cat_vals = from_global_state(
+            global_state,
+            block_spec,
+            &self.categorical_node_groups,
+            device,
+        );
+
+        // Extract data to CPU
+        let spin_data: Vec<Vec<f32>> = spin_vals.iter()
+            .map(|t| t.clone().into_data().to_vec().unwrap())
+            .collect();
+        
+        let cat_data: Vec<Vec<f32>> = cat_vals.iter()
+            .map(|t| t.clone().into_data().to_vec().unwrap())
+            .collect();
+
+        let weights_data: Vec<f32> = self.weights.clone().into_data().to_vec().unwrap();
+        let weight_dims = self.weights.dims();
+
+        // Compute spin product in f64
+        let n_nodes = if !spin_data.is_empty() {
+            spin_data[0].len()
+        } else if !cat_data.is_empty() {
+            cat_data[0].len()
+        } else {
+            weight_dims[0]
+        };
+
+        let spin_prod_f64: Vec<f64> = if spin_data.is_empty() {
+            vec![1.0; n_nodes]
+        } else {
+            let mut prod = vec![1.0f64; n_nodes];
+            for spin_vec in &spin_data {
+                for (i, &s) in spin_vec.iter().enumerate() {
+                    // Convert 0/1 to -1/+1
+                    let spin_val = 2.0 * (s as f64) - 1.0;
+                    prod[i] *= spin_val;
+                }
+            }
+            prod
+        };
+
+        // Index into weights using categorical values and compute energy in f64
+        let mut energy_f64: f64 = 0.0;
+
+        if cat_data.is_empty() {
+            // No categorical variables - simple weighted sum
+            for i in 0..n_nodes {
+                let w = weights_data.get(i).copied().unwrap_or(0.0) as f64;
+                energy_f64 -= w * spin_prod_f64[i];
+            }
+        } else {
+            // With categorical variables - need to index into weights
+            let trailing_dims = &weight_dims[1..];
+            let mut strides: Vec<usize> = Vec::with_capacity(trailing_dims.len());
+            let mut stride = 1;
+            for &dim in trailing_dims.iter().rev() {
+                strides.push(stride);
+                stride *= dim;
+            }
+            strides.reverse();
+            let batch_stride: usize = trailing_dims.iter().product();
+
+            for i in 0..n_nodes {
+                // Compute linear index
+                let mut linear_idx = i * batch_stride;
+                for (cat_vec, &s) in cat_data.iter().zip(strides.iter()) {
+                    let cat_idx = cat_vec.get(i).copied().unwrap_or(0.0) as usize;
+                    linear_idx += cat_idx * s;
+                }
+
+                let w = weights_data.get(linear_idx).copied().unwrap_or(0.0) as f64;
+                energy_f64 -= w * spin_prod_f64[i];
+            }
+        }
+
+        // Convert back to f32 tensor
+        Tensor::from_floats([energy_f64 as f32].as_slice(), device)
+    }
+
+    /// Compute factor energy using CUDA f64.
+    #[cfg(feature = "cuda")]
+    fn factor_energy_cuda_f64(
+        &self,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        // For complex gather operations, fall back to CPU f64
+        // A full CUDA implementation would require CUDA-native gather
+        self.factor_energy_cpu_f64(global_state, block_spec, device)
+    }
+}
+
 // ============================================================================
 // Specialized Factor Types
 // ============================================================================
@@ -623,6 +774,19 @@ impl EBMFactor for SpinEBMFactor {
     }
 }
 
+impl SpinEBMFactor {
+    /// Compute factor energy with precision routing.
+    pub fn factor_energy_routed(
+        &self,
+        backend: &ComputeBackend,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+    }
+}
+
 /// A DiscreteEBMFactor that involves only categorical variables.
 ///
 /// This is a convenience wrapper around DiscreteEBMFactor with no spin node groups.
@@ -663,6 +827,19 @@ impl EBMFactor for CategoricalEBMFactor {
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
         self.inner.factor_energy(global_state, block_spec, device)
+    }
+}
+
+impl CategoricalEBMFactor {
+    /// Compute factor energy with precision routing.
+    pub fn factor_energy_routed(
+        &self,
+        backend: &ComputeBackend,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
     }
 }
 
@@ -813,6 +990,19 @@ impl EBMFactor for SquareDiscreteEBMFactor {
     }
 }
 
+impl SquareDiscreteEBMFactor {
+    /// Compute factor energy with precision routing.
+    pub fn factor_energy_routed(
+        &self,
+        backend: &ComputeBackend,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+    }
+}
+
 /// A DiscreteEBMFactor with only categorical variables and a square weight tensor.
 pub struct SquareCategoricalEBMFactor {
     inner: SquareDiscreteEBMFactor,
@@ -847,5 +1037,18 @@ impl EBMFactor for SquareCategoricalEBMFactor {
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
         self.inner.factor_energy(global_state, block_spec, device)
+    }
+}
+
+impl SquareCategoricalEBMFactor {
+    /// Compute factor energy with precision routing.
+    pub fn factor_energy_routed(
+        &self,
+        backend: &ComputeBackend,
+        global_state: &[Tensor<WgpuBackend, 1>],
+        block_spec: &BlockSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 1> {
+        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
     }
 }

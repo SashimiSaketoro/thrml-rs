@@ -20,6 +20,9 @@ burn-wgpu = { workspace = true, optional = true }
 burn-cuda = { workspace = true, optional = true }
 burn-ndarray = { workspace = true, optional = true }
 burn-cubecl = { version = "0.19", default-features = false, optional = true }
+# For direct WGPU adapter inspection (hardware detection)
+wgpu = { version = "26.0", default-features = false, optional = true }
+pollster = { version = "0.4", optional = true }
 indexmap = { workspace = true }
 ordered-float = { version = "4.2", features = ["serde"] }
 serde = { workspace = true }
@@ -33,13 +36,13 @@ num_cpus = "1.16"
 
 # These are accessed via burn re-exports or feature flags
 [package.metadata.cargo-machete]
-ignored = ["burn-tensor", "burn-wgpu", "burn-cubecl", "burn-cuda", "burn-ndarray"]
+ignored = ["burn-tensor", "burn-wgpu", "burn-cubecl", "burn-cuda", "burn-ndarray", "wgpu", "pollster"]
 
 [features]
 default = ["gpu"]
 # WGPU backend: Metal (macOS), Vulkan (Linux), DX12 (Windows)
 # This is the primary backend used throughout the crate
-gpu = ["burn/wgpu", "burn-wgpu", "burn-cubecl"]
+gpu = ["burn/wgpu", "burn-wgpu", "burn-cubecl", "wgpu", "pollster"]
 # CUDA backend: NVIDIA GPUs on Linux/Windows  
 # Includes WGPU for type compatibility
 cuda = ["gpu", "burn/cuda", "burn-cuda"]

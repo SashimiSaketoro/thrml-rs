@@ -10,6 +10,23 @@
 //!
 //! This is equivalent to JAX's `jax.random.categorical` function.
 //!
+//! ## Precision Routing
+//!
+//! When using `sample_routed` with a [`ComputeBackend`], the sampler routes
+//! precision-sensitive logit accumulation based on hardware capabilities:
+//!
+//! | Hardware | Backend | Precision | Path |
+//! |----------|---------|-----------|------|
+//! | H100/B200 (with `cuda` feature) | `GpuHpcF64` | f64 on GPU | `compute_parameters_cuda_f64` |
+//! | Apple Silicon, Consumer NVIDIA | `UnifiedHybrid` | f64 on CPU | `compute_parameters_cpu_f64` |
+//! | Any (bulk ops / non-precision) | `GpuOnly` | f32 on GPU | `compute_parameters` |
+//!
+//! This is controlled by:
+//! 1. [`ComputeBackend::uses_gpu_f64`] - CUDA f64 on HPC GPUs
+//! 2. [`ComputeBackend::use_cpu`] with [`OpType::CategoricalSampling`] - CPU f64 fallback
+//!
+//! ## Fused Kernels
+//!
 //! When the `fused-kernels` feature is enabled, uses a GPU-fused kernel that
 //! combines the Gumbel noise generation and argmax into a single kernel launch.
 
@@ -17,6 +34,7 @@ use crate::rng::RngKey;
 use crate::sampler::AbstractConditionalSampler;
 use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
+use thrml_core::compute::{ComputeBackend, OpType};
 use thrml_core::interaction::InteractionData;
 use thrml_core::node::TensorSpec;
 
@@ -253,6 +271,275 @@ impl AbstractConditionalSampler for CategoricalGibbsConditional {
 }
 
 impl CategoricalGibbsConditional {
+    /// Sample with precision routing based on ComputeBackend.
+    ///
+    /// This routes the theta (logit) computation through CPU f64 or CUDA f64
+    /// based on the backend configuration, preventing overflow in f32 accumulation.
+    ///
+    /// # Arguments
+    ///
+    /// * `backend` - The compute backend for routing decisions
+    /// * Other arguments same as `sample`
+    pub fn sample_routed(
+        &self,
+        backend: &ComputeBackend,
+        _key: RngKey,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        n_spin_per_interaction: &[usize],
+        _sampler_state: (),
+        output_spec: &TensorSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> (Tensor<WgpuBackend, 1>, ()) {
+        // Compute theta with precision routing
+        let theta = self.compute_parameters_routed(
+            backend,
+            interactions,
+            active_flags,
+            neighbor_states,
+            n_spin_per_interaction,
+            output_spec,
+            device,
+        );
+
+        // Sample from categorical using Gumbel-max trick
+        (categorical_sample(theta, device), ())
+    }
+
+    /// Compute theta with routing based on ComputeBackend.
+    ///
+    /// Routing priority:
+    /// 1. **CUDA f64**: If `backend.uses_gpu_f64()` and CUDA feature enabled
+    /// 2. **CPU f64**: If `backend.use_cpu(CategoricalSampling, ...)` returns true
+    /// 3. **GPU f32**: Default path for bulk operations
+    fn compute_parameters_routed(
+        &self,
+        backend: &ComputeBackend,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        n_spin_per_interaction: &[usize],
+        output_spec: &TensorSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 2> {
+        let n_nodes = output_spec.shape[0];
+
+        // Priority 1: CUDA f64 for HPC GPUs (H100, B200)
+        #[cfg(feature = "cuda")]
+        if backend.uses_gpu_f64() {
+            return self.compute_parameters_cuda_f64(
+                interactions,
+                active_flags,
+                neighbor_states,
+                n_spin_per_interaction,
+                output_spec,
+                device,
+            );
+        }
+
+        // Priority 2: CPU f64 for precision-sensitive accumulation
+        if backend.use_cpu(OpType::CategoricalSampling, Some(n_nodes)) {
+            return self.compute_parameters_cpu_f64(
+                interactions,
+                active_flags,
+                neighbor_states,
+                n_spin_per_interaction,
+                output_spec,
+                device,
+            );
+        }
+        
+        // Priority 3: Standard GPU f32 path
+        self.compute_parameters(
+            interactions,
+            active_flags,
+            neighbor_states,
+            n_spin_per_interaction,
+            output_spec,
+            device,
+        )
+    }
+
+    /// Compute theta using CPU f64 for precision-sensitive accumulation.
+    fn compute_parameters_cpu_f64(
+        &self,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        n_spin_per_interaction: &[usize],
+        output_spec: &TensorSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 2> {
+        let n_nodes = output_spec.shape[0];
+        let n_cats = self.n_categories;
+        
+        // Initialize theta in f64
+        let mut theta_f64: Vec<f64> = vec![0.0; n_nodes * n_cats];
+
+        for (interaction, active, states, &n_spin) in itertools::izip!(
+            interactions,
+            active_flags,
+            neighbor_states,
+            n_spin_per_interaction
+        ) {
+            match interaction {
+                InteractionData::Tensor(tensor) => {
+                    let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
+                    let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
+                    
+                    let dims = tensor.dims();
+                    let n_interactions = dims[1];
+                    let weight_dim = dims[2];
+
+                    // Split states into spin and categorical
+                    let (states_spin, states_cat) = split_states(states, n_spin);
+
+                    // Compute spin product in f64
+                    let spin_prod_f64: Vec<f64> = compute_spin_product_cpu_f64(&states_spin, n_nodes, n_interactions);
+
+                    // Get active flags as f64
+                    let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
+
+                    // Handle categorical indexing
+                    if states_cat.is_empty() {
+                        // Direct accumulation: theta += weights * active * spin_prod
+                        // weights shape: [n_nodes, n_interactions, n_cats]
+                        for node in 0..n_nodes {
+                            for int_idx in 0..n_interactions {
+                                let a = active_f64[node * n_interactions + int_idx];
+                                let sp = spin_prod_f64[node * n_interactions + int_idx];
+                                
+                                for cat in 0..n_cats.min(weight_dim) {
+                                    let w_idx = node * n_interactions * weight_dim + int_idx * weight_dim + cat;
+                                    let w = tensor_data[w_idx] as f64;
+                                    theta_f64[node * n_cats + cat] += w * a * sp;
+                                }
+                            }
+                        }
+                    } else {
+                        // Categorical neighbor indexing
+                        let neighbor_cat_data: Vec<f32> = states_cat[0].clone().into_data().to_vec().unwrap();
+                        
+                        // weights shape: [n_nodes, n_interactions, n_cats * n_cats] (flattened 4D)
+                        for node in 0..n_nodes {
+                            for int_idx in 0..n_interactions {
+                                let a = active_f64[node * n_interactions + int_idx];
+                                let sp = spin_prod_f64[node * n_interactions + int_idx];
+                                let neighbor_idx = neighbor_cat_data[node * n_interactions + int_idx] as usize;
+                                
+                                for cat in 0..n_cats {
+                                    // Index into flattened [n_cats, n_cats] -> [neighbor_idx, cat]
+                                    let w_idx = node * n_interactions * n_cats * n_cats 
+                                        + int_idx * n_cats * n_cats 
+                                        + neighbor_idx * n_cats 
+                                        + cat;
+                                    if w_idx < tensor_data.len() {
+                                        let w = tensor_data[w_idx] as f64;
+                                        theta_f64[node * n_cats + cat] += w * a * sp;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                InteractionData::Linear { .. } | InteractionData::Quadratic { .. } | InteractionData::Sphere { .. } => {
+                    // Skip - not applicable to categorical sampling
+                }
+            }
+        }
+
+        // Convert back to f32 tensor
+        let theta_f32: Vec<f32> = theta_f64.iter().map(|&x| x as f32).collect();
+        Tensor::<WgpuBackend, 1>::from_floats(theta_f32.as_slice(), device)
+            .reshape([n_nodes as i32, n_cats as i32])
+    }
+
+    /// Compute theta using CUDA f64 for HPC GPUs.
+    #[cfg(feature = "cuda")]
+    fn compute_parameters_cuda_f64(
+        &self,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        n_spin_per_interaction: &[usize],
+        output_spec: &TensorSpec,
+        wgpu_device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Tensor<WgpuBackend, 2> {
+        use thrml_core::backend::{CudaBackend, init_cuda_device};
+        use burn::tensor::Tensor as BurnTensor;
+        
+        let n_nodes = output_spec.shape[0];
+        let n_cats = self.n_categories;
+        let cuda_device = init_cuda_device();
+        
+        // Initialize theta as f64 on CUDA
+        let mut theta_cuda: BurnTensor<CudaBackend, 2> = 
+            BurnTensor::zeros([n_nodes, n_cats], &cuda_device);
+
+        for (interaction, active, states, &n_spin) in itertools::izip!(
+            interactions,
+            active_flags,
+            neighbor_states,
+            n_spin_per_interaction
+        ) {
+            match interaction {
+                InteractionData::Tensor(tensor) => {
+                    let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
+                    let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
+                    
+                    let dims = tensor.dims();
+                    let n_interactions = dims[1];
+
+                    // Convert to f64 and create CUDA tensors
+                    let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
+                    let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
+
+                    let active_cuda: BurnTensor<CudaBackend, 2> = 
+                        BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
+                            .reshape([n_nodes as i32, n_interactions as i32]);
+
+                    // Split states
+                    let (states_spin, states_cat) = split_states(states, n_spin);
+
+                    // Compute spin product on CUDA
+                    let spin_prod_cuda = compute_spin_product_cuda_f64(&states_spin, &cuda_device, n_nodes, n_interactions);
+
+                    // Handle weights and categorical indexing
+                    let weights_indexed: BurnTensor<CudaBackend, 3> = if states_cat.is_empty() {
+                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device)
+                            .reshape([n_nodes as i32, n_interactions as i32, n_cats as i32])
+                    } else {
+                        // Simplified: for categorical neighbors, use CPU f64 path for correctness
+                        // Full gather implementation would be complex
+                        return self.compute_parameters_cpu_f64(
+                            interactions, active_flags, neighbor_states, 
+                            n_spin_per_interaction, output_spec, wgpu_device
+                        );
+                    };
+
+                    // Compute contribution: [n_nodes, n_interactions, n_cats]
+                    let spin_prod_expanded = spin_prod_cuda.clone().unsqueeze_dim::<3>(2);
+                    let active_expanded = active_cuda.clone().unsqueeze_dim::<3>(2);
+                    let weighted = spin_prod_expanded * weights_indexed * active_expanded;
+                    let contribution = weighted.sum_dim(1).squeeze_dim(1);
+                    theta_cuda = theta_cuda + contribution;
+                }
+                InteractionData::Linear { .. } | InteractionData::Quadratic { .. } | InteractionData::Sphere { .. } => {
+                    // Skip
+                }
+            }
+        }
+
+        // Convert back to WGPU f32
+        let theta_f64_vec: Vec<f64> = theta_cuda.into_data().to_vec().unwrap();
+        let theta_f32: Vec<f32> = theta_f64_vec.iter().map(|&x| x as f32).collect();
+        Tensor::<WgpuBackend, 1>::from_floats(theta_f32.as_slice(), wgpu_device)
+            .reshape([n_nodes as i32, n_cats as i32])
+    }
+}
+
+impl CategoricalGibbsConditional {
     /// Compute the parameter θ of a softmax distribution for Gibbs sampling.
     ///
     /// This implements the full CategoricalGibbsConditional.compute_parameters
@@ -435,6 +722,77 @@ fn spin_product_2d(
         .iter()
         .skip(1)
         .fold(first, |acc, x| acc * x.clone())
+}
+
+/// Compute spin product in CPU f64.
+///
+/// Extracts tensor data, computes (2*s - 1) product in f64 precision.
+fn compute_spin_product_cpu_f64(
+    spin_vals: &[Tensor<WgpuBackend, 2>],
+    n_nodes: usize,
+    n_interactions: usize,
+) -> Vec<f64> {
+    let total = n_nodes * n_interactions;
+    
+    if spin_vals.is_empty() {
+        return vec![1.0; total];
+    }
+
+    // Initialize with first state
+    let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
+    let mut result: Vec<f64> = first_data.iter()
+        .map(|&s| 2.0 * (s as f64) - 1.0)
+        .collect();
+    
+    // Pad if needed
+    result.resize(total, 1.0);
+
+    // Multiply remaining states
+    for state in spin_vals.iter().skip(1) {
+        let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
+        for (i, &s) in data.iter().enumerate() {
+            if i < result.len() {
+                result[i] *= 2.0 * (s as f64) - 1.0;
+            }
+        }
+    }
+
+    result
+}
+
+/// Compute spin product on CUDA in f64.
+#[cfg(feature = "cuda")]
+fn compute_spin_product_cuda_f64(
+    spin_vals: &[Tensor<WgpuBackend, 2>],
+    cuda_device: &burn::backend::cuda::CudaDevice,
+    n_nodes: usize,
+    n_interactions: usize,
+) -> burn::tensor::Tensor<thrml_core::backend::CudaBackend, 2> {
+    use burn::tensor::Tensor as BurnTensor;
+    use thrml_core::backend::CudaBackend;
+    
+    if spin_vals.is_empty() {
+        return BurnTensor::<CudaBackend, 2>::ones([n_nodes, n_interactions], cuda_device);
+    }
+
+    // Convert first state to CUDA f64
+    let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
+    let first_f64: Vec<f64> = first_data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
+    let mut result: BurnTensor<CudaBackend, 2> = 
+        BurnTensor::from_floats(first_f64.as_slice(), cuda_device)
+            .reshape([n_nodes as i32, n_interactions as i32]);
+
+    // Multiply remaining states
+    for state in spin_vals.iter().skip(1) {
+        let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
+        let data_f64: Vec<f64> = data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
+        let state_cuda: BurnTensor<CudaBackend, 2> = 
+            BurnTensor::from_floats(data_f64.as_slice(), cuda_device)
+                .reshape([n_nodes as i32, n_interactions as i32]);
+        result = result * state_cuda;
+    }
+
+    result
 }
 
 /// Differentiable categorical sampling using Gumbel-Softmax.

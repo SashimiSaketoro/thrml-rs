@@ -280,6 +280,7 @@ impl CategoricalGibbsConditional {
     ///
     /// * `backend` - The compute backend for routing decisions
     /// * Other arguments same as `sample`
+    #[allow(clippy::too_many_arguments)]
     pub fn sample_routed(
         &self,
         backend: &ComputeBackend,
@@ -313,6 +314,7 @@ impl CategoricalGibbsConditional {
     /// 1. **CUDA f64**: If `backend.uses_gpu_f64()` and CUDA feature enabled
     /// 2. **CPU f64**: If `backend.use_cpu(CategoricalSampling, ...)` returns true
     /// 3. **GPU f32**: Default path for bulk operations
+    #[allow(clippy::too_many_arguments)]
     fn compute_parameters_routed(
         &self,
         backend: &ComputeBackend,
@@ -349,7 +351,7 @@ impl CategoricalGibbsConditional {
                 device,
             );
         }
-        
+
         // Priority 3: Standard GPU f32 path
         self.compute_parameters(
             interactions,
@@ -373,7 +375,7 @@ impl CategoricalGibbsConditional {
     ) -> Tensor<WgpuBackend, 2> {
         let n_nodes = output_spec.shape[0];
         let n_cats = self.n_categories;
-        
+
         // Initialize theta in f64
         let mut theta_f64: Vec<f64> = vec![0.0; n_nodes * n_cats];
 
@@ -387,7 +389,7 @@ impl CategoricalGibbsConditional {
                 InteractionData::Tensor(tensor) => {
                     let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
                     let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
-                    
+
                     let dims = tensor.dims();
                     let n_interactions = dims[1];
                     let weight_dim = dims[2];
@@ -396,7 +398,8 @@ impl CategoricalGibbsConditional {
                     let (states_spin, states_cat) = split_states(states, n_spin);
 
                     // Compute spin product in f64
-                    let spin_prod_f64: Vec<f64> = compute_spin_product_cpu_f64(&states_spin, n_nodes, n_interactions);
+                    let spin_prod_f64: Vec<f64> =
+                        compute_spin_product_cpu_f64(&states_spin, n_nodes, n_interactions);
 
                     // Get active flags as f64
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
@@ -409,9 +412,11 @@ impl CategoricalGibbsConditional {
                             for int_idx in 0..n_interactions {
                                 let a = active_f64[node * n_interactions + int_idx];
                                 let sp = spin_prod_f64[node * n_interactions + int_idx];
-                                
+
                                 for cat in 0..n_cats.min(weight_dim) {
-                                    let w_idx = node * n_interactions * weight_dim + int_idx * weight_dim + cat;
+                                    let w_idx = node * n_interactions * weight_dim
+                                        + int_idx * weight_dim
+                                        + cat;
                                     let w = tensor_data[w_idx] as f64;
                                     theta_f64[node * n_cats + cat] += w * a * sp;
                                 }
@@ -419,20 +424,22 @@ impl CategoricalGibbsConditional {
                         }
                     } else {
                         // Categorical neighbor indexing
-                        let neighbor_cat_data: Vec<f32> = states_cat[0].clone().into_data().to_vec().unwrap();
-                        
+                        let neighbor_cat_data: Vec<f32> =
+                            states_cat[0].clone().into_data().to_vec().unwrap();
+
                         // weights shape: [n_nodes, n_interactions, n_cats * n_cats] (flattened 4D)
                         for node in 0..n_nodes {
                             for int_idx in 0..n_interactions {
                                 let a = active_f64[node * n_interactions + int_idx];
                                 let sp = spin_prod_f64[node * n_interactions + int_idx];
-                                let neighbor_idx = neighbor_cat_data[node * n_interactions + int_idx] as usize;
-                                
+                                let neighbor_idx =
+                                    neighbor_cat_data[node * n_interactions + int_idx] as usize;
+
                                 for cat in 0..n_cats {
                                     // Index into flattened [n_cats, n_cats] -> [neighbor_idx, cat]
-                                    let w_idx = node * n_interactions * n_cats * n_cats 
-                                        + int_idx * n_cats * n_cats 
-                                        + neighbor_idx * n_cats 
+                                    let w_idx = node * n_interactions * n_cats * n_cats
+                                        + int_idx * n_cats * n_cats
+                                        + neighbor_idx * n_cats
                                         + cat;
                                     if w_idx < tensor_data.len() {
                                         let w = tensor_data[w_idx] as f64;
@@ -443,7 +450,9 @@ impl CategoricalGibbsConditional {
                         }
                     }
                 }
-                InteractionData::Linear { .. } | InteractionData::Quadratic { .. } | InteractionData::Sphere { .. } => {
+                InteractionData::Linear { .. }
+                | InteractionData::Quadratic { .. }
+                | InteractionData::Sphere { .. } => {
                     // Skip - not applicable to categorical sampling
                 }
             }
@@ -466,15 +475,15 @@ impl CategoricalGibbsConditional {
         output_spec: &TensorSpec,
         wgpu_device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 2> {
-        use thrml_core::backend::{CudaBackend, init_cuda_device};
         use burn::tensor::Tensor as BurnTensor;
-        
+        use thrml_core::backend::{init_cuda_device, CudaBackend};
+
         let n_nodes = output_spec.shape[0];
         let n_cats = self.n_categories;
         let cuda_device = init_cuda_device();
-        
+
         // Initialize theta as f64 on CUDA
-        let mut theta_cuda: BurnTensor<CudaBackend, 2> = 
+        let mut theta_cuda: BurnTensor<CudaBackend, 2> =
             BurnTensor::zeros([n_nodes, n_cats], &cuda_device);
 
         for (interaction, active, states, &n_spin) in itertools::izip!(
@@ -487,7 +496,7 @@ impl CategoricalGibbsConditional {
                 InteractionData::Tensor(tensor) => {
                     let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
                     let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
-                    
+
                     let dims = tensor.dims();
                     let n_interactions = dims[1];
 
@@ -495,7 +504,7 @@ impl CategoricalGibbsConditional {
                     let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let active_cuda: BurnTensor<CudaBackend, 2> = 
+                    let active_cuda: BurnTensor<CudaBackend, 2> =
                         BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
                             .reshape([n_nodes as i32, n_interactions as i32]);
 
@@ -503,18 +512,30 @@ impl CategoricalGibbsConditional {
                     let (states_spin, states_cat) = split_states(states, n_spin);
 
                     // Compute spin product on CUDA
-                    let spin_prod_cuda = compute_spin_product_cuda_f64(&states_spin, &cuda_device, n_nodes, n_interactions);
+                    let spin_prod_cuda = compute_spin_product_cuda_f64(
+                        &states_spin,
+                        &cuda_device,
+                        n_nodes,
+                        n_interactions,
+                    );
 
                     // Handle weights and categorical indexing
                     let weights_indexed: BurnTensor<CudaBackend, 3> = if states_cat.is_empty() {
-                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32, n_cats as i32])
+                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device).reshape([
+                            n_nodes as i32,
+                            n_interactions as i32,
+                            n_cats as i32,
+                        ])
                     } else {
                         // Simplified: for categorical neighbors, use CPU f64 path for correctness
                         // Full gather implementation would be complex
                         return self.compute_parameters_cpu_f64(
-                            interactions, active_flags, neighbor_states, 
-                            n_spin_per_interaction, output_spec, wgpu_device
+                            interactions,
+                            active_flags,
+                            neighbor_states,
+                            n_spin_per_interaction,
+                            output_spec,
+                            wgpu_device,
                         );
                     };
 
@@ -525,7 +546,9 @@ impl CategoricalGibbsConditional {
                     let contribution = weighted.sum_dim(1).squeeze_dim(1);
                     theta_cuda = theta_cuda + contribution;
                 }
-                InteractionData::Linear { .. } | InteractionData::Quadratic { .. } | InteractionData::Sphere { .. } => {
+                InteractionData::Linear { .. }
+                | InteractionData::Quadratic { .. }
+                | InteractionData::Sphere { .. } => {
                     // Skip
                 }
             }
@@ -733,17 +756,15 @@ fn compute_spin_product_cpu_f64(
     n_interactions: usize,
 ) -> Vec<f64> {
     let total = n_nodes * n_interactions;
-    
+
     if spin_vals.is_empty() {
         return vec![1.0; total];
     }
 
     // Initialize with first state
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
-    let mut result: Vec<f64> = first_data.iter()
-        .map(|&s| 2.0 * (s as f64) - 1.0)
-        .collect();
-    
+    let mut result: Vec<f64> = first_data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
+
     // Pad if needed
     result.resize(total, 1.0);
 
@@ -770,7 +791,7 @@ fn compute_spin_product_cuda_f64(
 ) -> burn::tensor::Tensor<thrml_core::backend::CudaBackend, 2> {
     use burn::tensor::Tensor as BurnTensor;
     use thrml_core::backend::CudaBackend;
-    
+
     if spin_vals.is_empty() {
         return BurnTensor::<CudaBackend, 2>::ones([n_nodes, n_interactions], cuda_device);
     }
@@ -778,7 +799,7 @@ fn compute_spin_product_cuda_f64(
     // Convert first state to CUDA f64
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
     let first_f64: Vec<f64> = first_data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
-    let mut result: BurnTensor<CudaBackend, 2> = 
+    let mut result: BurnTensor<CudaBackend, 2> =
         BurnTensor::from_floats(first_f64.as_slice(), cuda_device)
             .reshape([n_nodes as i32, n_interactions as i32]);
 
@@ -786,7 +807,7 @@ fn compute_spin_product_cuda_f64(
     for state in spin_vals.iter().skip(1) {
         let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
         let data_f64: Vec<f64> = data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
-        let state_cuda: BurnTensor<CudaBackend, 2> = 
+        let state_cuda: BurnTensor<CudaBackend, 2> =
             BurnTensor::from_floats(data_f64.as_slice(), cuda_device)
                 .reshape([n_nodes as i32, n_interactions as i32]);
         result = result * state_cuda;

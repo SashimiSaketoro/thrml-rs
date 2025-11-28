@@ -11,7 +11,7 @@ use thrml_core::compute::ComputeBackend;
 use thrml_core::interaction::InteractionData;
 use thrml_core::node::TensorSpec;
 use thrml_samplers::rng::RngKey;
-use thrml_samplers::{GaussianSampler, SpinGibbsConditional, CategoricalGibbsConditional};
+use thrml_samplers::{CategoricalGibbsConditional, GaussianSampler, SpinGibbsConditional};
 
 /// Test that CPU f64 and GPU f32 paths produce numerically close results for SpinGibbs.
 #[test]
@@ -117,7 +117,7 @@ fn test_gaussian_routing_consistency() {
     // Create quadratic (precision) interaction
     let inverse_weights: Tensor<WgpuBackend, 2> = Tensor::random(
         [n_nodes, k],
-        burn::tensor::Distribution::Uniform(0.5, 2.0),  // Positive precision
+        burn::tensor::Distribution::Uniform(0.5, 2.0), // Positive precision
         &device,
     );
     let active: Tensor<WgpuBackend, 2> = Tensor::ones([n_nodes, k], &device);
@@ -175,7 +175,7 @@ fn test_large_problem_precision() {
     let device = init_gpu_device();
 
     let sampler = SpinGibbsConditional::new();
-    let n_nodes = 1000;  // Large enough to stress accumulation
+    let n_nodes = 1000; // Large enough to stress accumulation
     let n_interactions = 50;
 
     // Create test data with varied magnitudes
@@ -217,7 +217,7 @@ fn test_large_problem_precision() {
     );
 
     let data: Vec<f32> = samples.into_data().to_vec().unwrap();
-    
+
     // Count statistics
     let ones = data.iter().filter(|&&x| x > 0.5).count();
     let zeros = data.iter().filter(|&&x| x < 0.5).count();
@@ -225,9 +225,12 @@ fn test_large_problem_precision() {
     println!("✓ Large problem precision test passed");
     println!("  n_nodes: {}, n_interactions: {}", n_nodes, n_interactions);
     println!("  ones: {}, zeros: {}", ones, zeros);
-    
+
     // Should have a reasonable mix (not all same value)
-    assert!(ones > 100 && zeros > 100, "Should have reasonable mix of 0s and 1s");
+    assert!(
+        ones > 100 && zeros > 100,
+        "Should have reasonable mix of 0s and 1s"
+    );
 }
 
 /// Test CategoricalGibbs routing produces valid categorical samples.
@@ -300,7 +303,7 @@ fn test_categorical_routing_consistency() {
 /// Test backend detection and routing selection.
 #[test]
 fn test_backend_routing_selection() {
-    use thrml_core::compute::{RuntimePolicy, OpType};
+    use thrml_core::compute::{OpType, RuntimePolicy};
 
     // Apple Silicon should route Ising to CPU
     let apple = RuntimePolicy::apple_silicon();

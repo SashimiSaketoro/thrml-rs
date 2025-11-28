@@ -117,6 +117,7 @@ impl SpinGibbsConditional {
     ///     &output_spec, &device,
     /// );
     /// ```
+    #[allow(clippy::too_many_arguments)]
     pub fn sample_routed(
         &self,
         backend: &ComputeBackend,
@@ -165,6 +166,7 @@ impl SpinGibbsConditional {
     /// 1. **CUDA f64**: If `backend.uses_gpu_f64()` and CUDA feature enabled
     /// 2. **CPU f64**: If `backend.use_cpu(IsingSampling, ...)` returns true
     /// 3. **GPU f32**: Default path for bulk operations
+    #[allow(clippy::too_many_arguments)]
     fn compute_parameters_routed(
         &self,
         backend: &ComputeBackend,
@@ -201,7 +203,7 @@ impl SpinGibbsConditional {
                 device,
             );
         }
-        
+
         // Priority 3: Standard GPU f32 path
         self.compute_parameters(
             interactions,
@@ -227,15 +229,14 @@ impl SpinGibbsConditional {
         output_spec: &TensorSpec,
         wgpu_device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        use thrml_core::backend::{CudaBackend, init_cuda_device};
         use burn::tensor::Tensor as BurnTensor;
-        
+        use thrml_core::backend::{init_cuda_device, CudaBackend};
+
         let n_nodes = output_spec.shape[0];
         let cuda_device = init_cuda_device();
-        
+
         // Initialize gamma as f64 on CUDA
-        let mut gamma_cuda: BurnTensor<CudaBackend, 1> = 
-            BurnTensor::zeros([n_nodes], &cuda_device);
+        let mut gamma_cuda: BurnTensor<CudaBackend, 1> = BurnTensor::zeros([n_nodes], &cuda_device);
 
         for (interaction, active, states, &n_spin) in itertools::izip!(
             interactions,
@@ -248,19 +249,22 @@ impl SpinGibbsConditional {
                     // Convert WGPU tensors to CUDA f64
                     let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
                     let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
-                    
+
                     let tensor_dims = tensor.dims();
                     let n_interactions = tensor_dims[1];
                     let weight_dim = tensor_dims[2];
-                    
+
                     // Convert to f64 and create CUDA tensors
                     let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
-                    
-                    let weights_cuda: BurnTensor<CudaBackend, 3> = 
-                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32, weight_dim as i32]);
-                    let active_cuda: BurnTensor<CudaBackend, 2> = 
+
+                    let weights_cuda: BurnTensor<CudaBackend, 3> =
+                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device).reshape([
+                            n_nodes as i32,
+                            n_interactions as i32,
+                            weight_dim as i32,
+                        ]);
+                    let active_cuda: BurnTensor<CudaBackend, 2> =
                         BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
                             .reshape([n_nodes as i32, n_interactions as i32]);
 
@@ -275,7 +279,7 @@ impl SpinGibbsConditional {
                                 .reshape([n_nodes as i32, n_interactions as i32])
                         })
                         .collect();
-                    
+
                     let states_cat_cuda: Vec<BurnTensor<CudaBackend, 2>> = states
                         .iter()
                         .skip(n_spin)
@@ -288,14 +292,17 @@ impl SpinGibbsConditional {
                         .collect();
 
                     // Compute spin product in f64 on CUDA
-                    let spin_prod_cuda = compute_spin_product_2d_cuda(&states_spin_cuda, &cuda_device);
+                    let spin_prod_cuda =
+                        compute_spin_product_2d_cuda(&states_spin_cuda, &cuda_device);
 
                     // Get weights (with categorical indexing if needed)
                     let weights_indexed = if states_cat_cuda.is_empty() {
                         weights_cuda.squeeze_dim(2)
                     } else {
                         // Simplified: use first index (full categorical support would need gather)
-                        weights_cuda.slice([0..n_nodes, 0..n_interactions, 0..1]).squeeze_dim(2)
+                        weights_cuda
+                            .slice([0..n_nodes, 0..n_interactions, 0..1])
+                            .squeeze_dim(2)
                     };
 
                     // Compute contribution in f64
@@ -312,10 +319,10 @@ impl SpinGibbsConditional {
                     let weights_f64: Vec<f64> = weights_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let weights_cuda: BurnTensor<CudaBackend, 2> = 
+                    let weights_cuda: BurnTensor<CudaBackend, 2> =
                         BurnTensor::from_floats(weights_f64.as_slice(), &cuda_device)
                             .reshape([n_nodes as i32, n_interactions as i32]);
-                    let active_cuda: BurnTensor<CudaBackend, 2> = 
+                    let active_cuda: BurnTensor<CudaBackend, 2> =
                         BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
                             .reshape([n_nodes as i32, n_interactions as i32]);
 
@@ -324,14 +331,14 @@ impl SpinGibbsConditional {
                     } else {
                         let first_data: Vec<f32> = states[0].clone().into_data().to_vec().unwrap();
                         let first_f64: Vec<f64> = first_data.iter().map(|&x| x as f64).collect();
-                        let mut prod: BurnTensor<CudaBackend, 2> = 
+                        let mut prod: BurnTensor<CudaBackend, 2> =
                             BurnTensor::from_floats(first_f64.as_slice(), &cuda_device)
                                 .reshape([n_nodes as i32, n_interactions as i32]);
-                        
+
                         for s in states.iter().skip(1) {
                             let s_data: Vec<f32> = s.clone().into_data().to_vec().unwrap();
                             let s_f64: Vec<f64> = s_data.iter().map(|&x| x as f64).collect();
-                            let s_cuda: BurnTensor<CudaBackend, 2> = 
+                            let s_cuda: BurnTensor<CudaBackend, 2> =
                                 BurnTensor::from_floats(s_f64.as_slice(), &cuda_device)
                                     .reshape([n_nodes as i32, n_interactions as i32]);
                             prod = prod * s_cuda;
@@ -360,6 +367,7 @@ impl SpinGibbsConditional {
     /// This extracts tensor data to CPU, performs all accumulation in f64,
     /// then converts back to a f32 tensor. This avoids f32 rounding errors
     /// that accumulate in long chains of operations.
+    #[allow(clippy::needless_range_loop)]
     fn compute_parameters_cpu_f64(
         &self,
         interactions: &[InteractionData],
@@ -370,7 +378,7 @@ impl SpinGibbsConditional {
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
         let n_nodes = output_spec.shape[0];
-        
+
         // Accumulate in f64 for precision
         let mut gamma_f64: Vec<f64> = vec![0.0; n_nodes];
 
@@ -385,7 +393,7 @@ impl SpinGibbsConditional {
                     // Extract tensor data to CPU
                     let tensor_data: Vec<f32> = tensor.clone().into_data().to_vec().unwrap();
                     let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
-                    
+
                     let tensor_dims = tensor.dims();
                     let n_interactions = tensor_dims[1];
                     let weight_dim = tensor_dims[2];
@@ -407,7 +415,7 @@ impl SpinGibbsConditional {
                         for int_idx in 0..n_interactions {
                             let flat_idx = node_idx * n_interactions + int_idx;
                             let active_val = active_data[flat_idx] as f64;
-                            
+
                             if active_val == 0.0 {
                                 continue;
                             }
@@ -422,12 +430,15 @@ impl SpinGibbsConditional {
                             // Get weight value
                             let weight_val: f64 = if states_cat.is_empty() {
                                 // Direct weight access (weight_dim should be 1)
-                                let w_idx = node_idx * n_interactions * weight_dim + int_idx * weight_dim;
+                                let w_idx =
+                                    node_idx * n_interactions * weight_dim + int_idx * weight_dim;
                                 tensor_data.get(w_idx).copied().unwrap_or(0.0) as f64
                             } else {
                                 // Index by categorical state
                                 let cat_idx = states_cat[0][flat_idx] as usize;
-                                let w_idx = node_idx * n_interactions * weight_dim + int_idx * weight_dim + cat_idx;
+                                let w_idx = node_idx * n_interactions * weight_dim
+                                    + int_idx * weight_dim
+                                    + cat_idx;
                                 tensor_data.get(w_idx).copied().unwrap_or(0.0) as f64
                             };
 
@@ -452,7 +463,7 @@ impl SpinGibbsConditional {
                         for int_idx in 0..n_interactions {
                             let flat_idx = node_idx * n_interactions + int_idx;
                             let active_val = active_data[flat_idx] as f64;
-                            
+
                             if active_val == 0.0 {
                                 continue;
                             }
@@ -620,7 +631,7 @@ fn compute_spin_product_2d_cuda(
 ) -> burn::tensor::Tensor<thrml_core::backend::CudaBackend, 2> {
     use burn::tensor::Tensor as BurnTensor;
     use thrml_core::backend::CudaBackend;
-    
+
     if states.is_empty() {
         return BurnTensor::<CudaBackend, 2>::ones([1, 1], device);
     }
@@ -702,11 +713,12 @@ mod tests {
         let weight_data: Vec<f32> = (0..(n_nodes * n_interactions * weight_dim))
             .map(|i| 0.001 * (i as f32 + 1.0))
             .collect();
-        let weights: Tensor<WgpuBackend, 3> = Tensor::<WgpuBackend, 1>::from_floats(
-            weight_data.as_slice(),
-            &device,
-        )
-        .reshape([n_nodes as i32, n_interactions as i32, weight_dim as i32]);
+        let weights: Tensor<WgpuBackend, 3> =
+            Tensor::<WgpuBackend, 1>::from_floats(weight_data.as_slice(), &device).reshape([
+                n_nodes as i32,
+                n_interactions as i32,
+                weight_dim as i32,
+            ]);
 
         let interactions = vec![InteractionData::Tensor(weights)];
 
@@ -750,20 +762,33 @@ mod tests {
         // Both should produce similar results (CPU may be slightly more precise)
         for (i, (g, c)) in gpu_data.iter().zip(cpu_data.iter()).enumerate() {
             let diff = (g - c).abs();
-            let rel_diff = if c.abs() > 1e-10 { diff / c.abs() } else { diff };
-            
+            let rel_diff = if c.abs() > 1e-10 {
+                diff / c.abs()
+            } else {
+                diff
+            };
+
             // For this simple test, results should be very close
             // The precision benefit shows up more in long chains of operations
             assert!(
                 rel_diff < 0.01,
                 "Node {} gamma differs too much: GPU={}, CPU={}, rel_diff={}",
-                i, g, c, rel_diff
+                i,
+                g,
+                c,
+                rel_diff
             );
         }
 
         println!("✓ Precision routing test passed");
-        println!("  GPU gamma[0..4]: {:?}", &gpu_data[..4.min(gpu_data.len())]);
-        println!("  CPU gamma[0..4]: {:?}", &cpu_data[..4.min(cpu_data.len())]);
+        println!(
+            "  GPU gamma[0..4]: {:?}",
+            &gpu_data[..4.min(gpu_data.len())]
+        );
+        println!(
+            "  CPU gamma[0..4]: {:?}",
+            &cpu_data[..4.min(cpu_data.len())]
+        );
     }
 
     #[cfg(feature = "gpu")]
@@ -800,6 +825,10 @@ mod tests {
             &device,
         );
 
-        assert_eq!(samples.dims(), [4], "Should produce 4 samples via routed path");
+        assert_eq!(
+            samples.dims(),
+            [4],
+            "Should produce 4 samples via routed path"
+        );
     }
 }

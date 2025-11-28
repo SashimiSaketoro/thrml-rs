@@ -623,6 +623,7 @@ impl DiscreteEBMFactor {
     }
 
     /// Compute factor energy using CPU f64 accumulation.
+    #[allow(clippy::needless_range_loop)]
     fn factor_energy_cpu_f64(
         &self,
         global_state: &[Tensor<WgpuBackend, 1>],
@@ -641,11 +642,13 @@ impl DiscreteEBMFactor {
         );
 
         // Extract data to CPU
-        let spin_data: Vec<Vec<f32>> = spin_vals.iter()
+        let spin_data: Vec<Vec<f32>> = spin_vals
+            .iter()
             .map(|t| t.clone().into_data().to_vec().unwrap())
             .collect();
-        
-        let cat_data: Vec<Vec<f32>> = cat_vals.iter()
+
+        let cat_data: Vec<Vec<f32>> = cat_vals
+            .iter()
             .map(|t| t.clone().into_data().to_vec().unwrap())
             .collect();
 
@@ -783,7 +786,8 @@ impl SpinEBMFactor {
         block_spec: &BlockSpec,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+        self.inner
+            .factor_energy_routed(backend, global_state, block_spec, device)
     }
 }
 
@@ -839,7 +843,8 @@ impl CategoricalEBMFactor {
         block_spec: &BlockSpec,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+        self.inner
+            .factor_energy_routed(backend, global_state, block_spec, device)
     }
 }
 
@@ -999,7 +1004,8 @@ impl SquareDiscreteEBMFactor {
         block_spec: &BlockSpec,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+        self.inner
+            .factor_energy_routed(backend, global_state, block_spec, device)
     }
 }
 
@@ -1049,6 +1055,7 @@ impl SquareCategoricalEBMFactor {
         block_spec: &BlockSpec,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        self.inner.factor_energy_routed(backend, global_state, block_spec, device)
+        self.inner
+            .factor_energy_routed(backend, global_state, block_spec, device)
     }
 }

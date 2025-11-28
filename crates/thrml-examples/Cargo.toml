@@ -49,7 +49,7 @@ name = "blt_sphere"
 path = "examples/blt_sphere.rs"
 
 [dependencies]
-thrml-core = { path = "../thrml-core" }
+thrml-core = { path = "../thrml-core", default-features = false }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-models = { path = "../thrml-models" }
 thrml-sphere = { path = "../thrml-sphere" }

@@ -14,12 +14,12 @@ categories = ["science", "simulation", "mathematics"]
 rust-version.workspace = true
 
 [dependencies]
-thrml-core = { path = "../thrml-core" }
-thrml-samplers = { path = "../thrml-samplers" }
-thrml-models = { path = "../thrml-models" }
-thrml-kernels = { path = "../thrml-kernels", features = ["gpu"] }
-burn = { workspace = true, features = ["wgpu"] }
-burn-wgpu = { version = "0.19", default-features = false, features = ["autotune"] }
+thrml-core = { path = "../thrml-core", default-features = false }
+thrml-samplers = { path = "../thrml-samplers", default-features = false }
+thrml-models = { path = "../thrml-models", default-features = false }
+thrml-kernels = { path = "../thrml-kernels", default-features = false }
+burn = { workspace = true }
+burn-wgpu = { version = "0.19", default-features = false, features = ["autotune"], optional = true }
 ndarray = "0.16"
 ndarray-npy = "0.9"
 safetensors = "0.4"
@@ -34,6 +34,6 @@ tempfile = "3.10"
 
 [features]
 default = ["gpu"]
-gpu = []
+gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-models/gpu", "thrml-kernels/gpu"]
 
 

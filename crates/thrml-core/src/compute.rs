@@ -616,8 +616,9 @@ mod tests {
 
         #[cfg(not(target_os = "macos"))]
         {
-            // On non-macOS, default is GPU-only
-            assert!(!backend.use_cpu(OpType::IsingSampling, None));
+            // On non-macOS, default is Adaptive (routes precision-sensitive ops to CPU)
+            assert!(backend.use_cpu(OpType::IsingSampling, None)); // Adaptive routes this to CPU
+            assert!(!backend.use_cpu(OpType::Similarity, None)); // But general ops go to GPU
         }
     }
 

@@ -327,7 +327,7 @@ impl SphericalCoords {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
     use crate::backend::init_gpu_device;

@@ -2,6 +2,9 @@
 //!
 //! These tests verify the full pipeline works end-to-end with actual
 //! SafeTensors files produced by blt-burn.
+//!
+//! **Note**: These tests require external test data and are marked `#[ignore]`.
+//! Run them manually with: `cargo test --test integration_test -- --ignored`
 
 use std::path::Path;
 use thrml_core::backend::{ensure_backend, init_gpu_device};
@@ -46,6 +49,7 @@ fn find_test_safetensors() -> std::path::PathBuf {
 
 /// Test loading and optimizing with real BLT output.
 #[test]
+#[ignore = "Requires external test data (run blt-burn ingest first)"]
 fn test_full_pipeline_with_blt_output() {
     ensure_backend();
     let device = init_gpu_device();
@@ -155,6 +159,7 @@ fn test_full_pipeline_with_blt_output() {
 
 /// Test that optimization actually reduces energy.
 #[test]
+#[ignore = "Requires external test data (run blt-burn ingest first)"]
 fn test_optimization_reduces_energy() {
     ensure_backend();
     let device = init_gpu_device();
@@ -210,6 +215,7 @@ fn test_optimization_reduces_energy() {
 
 /// Test saving and loading coordinates.
 #[test]
+#[ignore = "Requires external test data (run blt-burn ingest first)"]
 fn test_save_load_npz() {
     ensure_backend();
     let device = init_gpu_device();
@@ -244,6 +250,7 @@ fn test_save_load_npz() {
 
 /// Test with different scale profiles.
 #[test]
+#[ignore = "Requires external test data (run blt-burn ingest first)"]
 fn test_scale_profiles() {
     ensure_backend();
     let device = init_gpu_device();

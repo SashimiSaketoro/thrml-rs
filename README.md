@@ -104,6 +104,53 @@ cargo build --release --features cpu
 - **WGPU backend**: GPU with Metal (macOS) or Vulkan (Linux/Windows) support
 - **CUDA backend**: NVIDIA GPU with CUDA toolkit installed
 
+## Runtime & Hardware Profiles
+
+`thrml-rs` is designed to run from laptops to DGX-class servers. The core crates share a
+common runtime abstraction:
+
+- **`ComputeBackend`**: Selects CPU / GPU / hybrid execution
+- **`PrecisionMode`**: Chooses between `GpuFast`, `CpuPrecise`, or `Adaptive` routing
+- **`OpType`**: Tags operations (Ising sampling, distance, etc.) for precision-aware routing
+
+### Hardware Tiers
+
+| Tier | Examples | FP64 | Default Profile |
+|------|----------|------|-----------------|
+| **Apple Silicon** | M1–M4 Pro/Max/Ultra | CPU only | `CpuFp64Strict` - GPU for throughput, CPU for precision |
+| **Consumer GPU** | RTX 3080–5090, RDNA3/4 | Weak | `GpuMixed` - GPU FP32, CPU f64 for corrections |
+| **HPC GPU** | H100, H200, B200, DGX Spark | Native | `GpuHpcFp64` - Full f64 on GPU |
+| **CPU Only** | Servers without GPU | Native | `CpuFp64Strict` - All operations on CPU |
+
+### Usage
+
+```rust
+use thrml_core::compute::{ComputeBackend, RuntimePolicy, OpType};
+
+// Auto-detect hardware and create appropriate backend
+let policy = RuntimePolicy::detect();
+let backend = ComputeBackend::from_policy(&policy);
+
+println!("Detected: {:?}", policy.tier);  // e.g., AppleSilicon
+println!("Profile: {:?}", policy.profile); // e.g., CpuFp64Strict
+
+// Precision-aware routing
+if backend.use_cpu(OpType::IsingSampling, None) {
+    // High-precision CPU f64 path (Apple Silicon, consumer GPU)
+} else {
+    // Fast GPU path (HPC GPUs with native f64)
+}
+```
+
+The default `ComputeBackend::default()` auto-detects your hardware. For explicit control:
+
+```rust
+// Force specific profiles
+let apple = RuntimePolicy::apple_silicon();
+let hpc = RuntimePolicy::nvidia_hopper();  // H100/H200
+let spark = RuntimePolicy::nvidia_spark(); // DGX Spark / GB10
+```
+
 ## Examples
 
 See the [`examples/`](crates/thrml-examples/examples/) directory:

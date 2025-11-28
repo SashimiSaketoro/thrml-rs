@@ -171,3 +171,32 @@ at your option.
 This project is inspired by [Extropic's THRML](https://github.com/extropic-ai/thrml) library. 
 THRML-RS is an independent Rust implementation providing the same functionality with native 
 GPU acceleration.
+
+## Experimental: Hyperspherical Navigation (`sphere` branch)
+
+The `sphere` branch contains an experimental crate for hyperspherical embedding optimization and multi-cone EBM navigation:
+
+| Crate | Description |
+|-------|-------------|
+| [`thrml-sphere`](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) | Langevin dynamics sphere optimization, ROOTS indexing, multi-cone navigation |
+
+### Features (sphere branch)
+
+- **Sphere Optimization**: Water-filling Langevin dynamics for embedding placement
+- **ROOTS Index**: Compressed inner-shell index with 3000:1 compression
+- **Multi-Cone Navigation**: Budget-allocated parallel EBM navigation
+- **Advanced Training**: Hard negative mining, PCD, curriculum learning
+- **Substring Coupling**: Byte-level structure for code/text clustering
+
+### Using the sphere branch
+
+```bash
+# Clone with sphere branch
+git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
+
+# Or add as git dependency
+[dependencies]
+thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+```
+
+See the [sphere branch documentation](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/docs/api/sphere.md) for full API reference.

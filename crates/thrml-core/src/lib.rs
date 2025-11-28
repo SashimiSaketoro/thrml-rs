@@ -66,7 +66,9 @@ pub mod block;
 pub mod blockspec;
 pub mod compute;
 pub mod config;
+pub mod metrics;
 pub mod node;
+pub mod text;
 
 // GPU-dependent modules (require gpu feature)
 #[cfg(feature = "gpu")]
@@ -85,7 +87,13 @@ pub use block::*;
 pub use blockspec::*;
 pub use compute::*;
 pub use config::*;
+pub use metrics::*;
 pub use node::*;
+pub use text::*;
+
+// Re-export GpuInfo only when gpu feature is enabled
+#[cfg(feature = "gpu")]
+pub use backend::GpuInfo;
 
 // Re-export GpuInfo only when gpu feature is enabled
 #[cfg(feature = "gpu")]

@@ -95,10 +95,6 @@ pub use text::*;
 #[cfg(feature = "gpu")]
 pub use backend::GpuInfo;
 
-// Re-export GpuInfo only when gpu feature is enabled
-#[cfg(feature = "gpu")]
-pub use backend::GpuInfo;
-
 #[cfg(feature = "gpu")]
 pub use distance::*;
 #[cfg(feature = "gpu")]

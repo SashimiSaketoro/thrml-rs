@@ -6,6 +6,16 @@
 //! - [`substring`]: Substring similarity for Ising max-cut coupling
 //! - [`cpu_ising`]: CPU-based f64 Ising max-cut partitioning
 //!
+//! ## Core Primitives
+//!
+//! For lower-level text similarity, see [`thrml_core::text`]:
+//! - `RollingHash`: Efficient n-gram hashing
+//! - `ngram_hashes`, `jaccard_similarity`: Text similarity primitives
+//!
+//! For simpler max-cut on dense matrices, see [`thrml_samplers::maxcut`]:
+//! - `maxcut_gibbs`, `maxcut_multistart`: Graph partitioning
+//! - `cut_value`: Compute cut quality
+//!
 //! ## Usage
 //!
 //! ```rust,ignore
@@ -22,6 +32,11 @@
 
 // Re-export core compute types from thrml-core
 pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};
+
+// Re-export text similarity primitives from thrml-core
+pub use thrml_core::text::{
+    jaccard_similarity as text_jaccard, ngram_hashes, RollingHash, TextSimilarityConfig,
+};
 
 // =============================================================================
 // Substring Similarity (for Ising max-cut enhancement)

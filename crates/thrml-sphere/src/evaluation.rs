@@ -7,6 +7,14 @@
 //! - **MRR**: Mean Reciprocal Rank - average of 1/rank for correct answers
 //! - **nDCG@k**: Normalized Discounted Cumulative Gain
 //!
+//! ## Core Primitives
+//!
+//! For general-purpose retrieval metrics without navigation dependencies,
+//! see [`thrml_core::metrics`]:
+//! - `recall_at_k`, `mrr`, `ndcg`: Single-query metrics
+//! - `evaluate_retrieval`: Batch evaluation over multiple queries
+//! - `RetrievalMetrics`: Aggregated metrics struct
+//!
 //! ## Quick Start
 //!
 //! ```rust,ignore

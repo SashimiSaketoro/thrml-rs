@@ -321,3 +321,9 @@ pub use compute::substring::SubstringConfig;
 
 // Re-export hardware tier types from thrml-core for RuntimeConfig users
 pub use thrml_core::compute::{HardwareTier, PrecisionProfile, RuntimePolicy};
+
+// Re-export generalized primitives from thrml-core and thrml-samplers
+// These can be used directly or as building blocks for sphere-specific APIs
+pub use thrml_core::metrics::{evaluate_retrieval, RetrievalMetrics};
+pub use thrml_core::text::{ngram_hashes, RollingHash, TextSimilarityConfig};
+pub use thrml_samplers::maxcut::{cut_value, maxcut_gibbs, maxcut_multistart};

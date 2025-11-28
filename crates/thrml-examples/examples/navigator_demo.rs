@@ -1,35 +1,37 @@
 //! Demonstrates multi-cone navigation from ROOTS peaks.
 //!
 //! This example shows how to use the `MultiConeNavigator` to perform
-//! ROOTS-guided navigation through a sphere of embeddings.
+//! ROOTS-guided navigation through a sphere of embeddings, with automatic
+//! hardware detection via `RuntimeConfig`.
 //!
 //! # Usage
 //!
 //! ```bash
-//! # From BLT v3 SafeTensors (recommended - includes bytes for substring coupling)
+//! # Auto-detect hardware and use optimal settings
 //! cargo run --example navigator_demo --release -- \
 //!   --blt-safetensors output.safetensors \
 //!   --top-k 10
 //!
-//! # From separate embeddings file
-//! cargo run --example navigator_demo --release -- \
-//!   --input embeddings.safetensors \
-//!   --top-k 10
-//!
-//! # With custom budget configuration
+//! # Override auto-detected budget (useful for testing)
 //! cargo run --example navigator_demo --release -- \
 //!   --blt-safetensors output.safetensors \
 //!   --max-cones 8 \
-//!   --budget-mb 512 \
-//!   --partitions 64
+//!   --budget-mb 512
+//!
+//! # Use auto budget from hardware detection
+//! cargo run --example navigator_demo --release -- \
+//!   --blt-safetensors output.safetensors \
+//!   --auto-budget
 //! ```
 //!
 //! # Architecture
 //!
 //! The multi-cone navigator works as follows:
 //!
-//! 1. Build ROOTS index from embeddings (with optional substring coupling)
-//! 2. For each query:
+//! 1. Auto-detect hardware (Apple Silicon, NVIDIA, AMD, etc.)
+//! 2. Configure memory budget and precision routing based on hardware
+//! 3. Build ROOTS index from embeddings (with optional substring coupling)
+//! 4. For each query:
 //!    a. Compute ROOTS activations
 //!    b. Detect activation peaks
 //!    c. Spawn cones at peak locations with budget proportional to strength
@@ -43,7 +45,7 @@ use thrml_core::backend::{ensure_backend, init_gpu_device};
 use thrml_samplers::RngKey;
 use thrml_sphere::{
     load_blt_safetensors, load_from_safetensors, BudgetConfig, MultiConeNavigator, RootsConfig,
-    ScaleProfile, SphereConfig,
+    RuntimeConfig, ScaleProfile, SphereConfig,
 };
 
 #[derive(Parser)]
@@ -75,9 +77,13 @@ struct Args {
     #[arg(long, default_value = "8")]
     max_cones: usize,
 
-    /// Total attention budget in MB
-    #[arg(long, default_value = "256")]
-    budget_mb: usize,
+    /// Total attention budget in MB (overrides auto-detection)
+    #[arg(long)]
+    budget_mb: Option<usize>,
+
+    /// Use auto-detected budget based on hardware tier
+    #[arg(long)]
+    auto_budget: bool,
 
     /// Peak detection threshold (0.0-1.0)
     #[arg(long, default_value = "0.2")]
@@ -108,11 +114,22 @@ fn main() -> Result<()> {
     // Initialize GPU backend
     ensure_backend();
     let device = init_gpu_device();
+
+    // Auto-detect hardware and configure
+    let runtime_config = RuntimeConfig::auto();
+    println!("Hardware detected: {:?}", runtime_config.policy.tier);
+    println!("Precision profile: {:?}", runtime_config.policy.profile);
+    if runtime_config.is_unified_memory() {
+        println!("Memory model: Unified (Apple Silicon or DGX Spark)");
+    } else {
+        println!("Memory model: Discrete VRAM");
+    }
     if args.verbose {
-        println!("GPU device initialized");
+        println!("Auto budget: {:.1} GB", runtime_config.budget_gb());
+        println!("Auto max cones: {}", runtime_config.budget.max_cones);
     }
 
-    // Parse scale profile
+    // Use sphere config from runtime or override
     let sphere_config = SphereConfig::from(ScaleProfile::Dev).with_steps(10);
 
     // Load embeddings and optionally bytes
@@ -153,16 +170,35 @@ fn main() -> Result<()> {
         println!("\nSubstring coupling enabled (α=0.7, β=0.3)");
     }
 
-    // Build budget config
-    let budget_config = BudgetConfig::new(args.budget_mb * 1024 * 1024)
-        .with_max_cones(args.max_cones)
-        .with_min_cone_budget(16 * 1024 * 1024) // 16MB min per cone
-        .with_peak_threshold(args.peak_threshold);
+    // Build budget config: use auto-detected or CLI overrides
+    let budget_config = if args.auto_budget {
+        // Use hardware-optimized budget from RuntimeConfig
+        runtime_config
+            .budget
+            .clone()
+            .with_peak_threshold(args.peak_threshold)
+    } else {
+        // Use CLI-specified budget (default 256MB if not specified)
+        let budget_bytes = args.budget_mb.unwrap_or(256) * 1024 * 1024;
+        BudgetConfig::new(budget_bytes)
+            .with_max_cones(args.max_cones)
+            .with_min_cone_budget(16 * 1024 * 1024) // 16MB min per cone
+            .with_peak_threshold(args.peak_threshold)
+    };
 
+    let budget_mb = budget_config.total_budget_bytes / (1024 * 1024);
     println!("\nConfiguration:");
     println!("  ROOTS partitions: {}", args.partitions);
-    println!("  Max cones: {}", args.max_cones);
-    println!("  Total budget: {} MB", args.budget_mb);
+    println!("  Max cones: {}", budget_config.max_cones);
+    println!(
+        "  Total budget: {} MB{}",
+        budget_mb,
+        if args.auto_budget {
+            " (auto-detected)"
+        } else {
+            ""
+        }
+    );
     println!("  Peak threshold: {}", args.peak_threshold);
 
     // Build multi-cone navigator

@@ -29,7 +29,7 @@
 
 use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
-use thrml_core::compute::{ComputeBackend, OpType};
+use thrml_core::compute::{ComputeBackend, HardwareTier, OpType, RuntimePolicy};
 use thrml_core::SphericalCoords;
 use thrml_samplers::RngKey;
 
@@ -342,6 +342,96 @@ impl BudgetConfig {
         }
     }
 
+    /// Create budget configuration optimized for a hardware tier.
+    ///
+    /// Configures memory budgets and cone counts based on typical
+    /// hardware characteristics:
+    ///
+    /// | Hardware | Budget | Max Cones | Notes |
+    /// |----------|--------|-----------|-------|
+    /// | Apple Silicon | 6GB | 8 | Unified memory, conservative |
+    /// | NVIDIA Consumer | 18GB | 16 | 24GB card with headroom |
+    /// | DGX Spark / GB10 | 100GB | 64 | 128GB unified LPDDR5x |
+    /// | H100/B200 | 64GB | 32 | 80GB HBM with headroom |
+    /// | CPU Only | 4GB | 4 | System RAM, conservative |
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use thrml_sphere::BudgetConfig;
+    /// use thrml_core::compute::HardwareTier;
+    ///
+    /// let config = BudgetConfig::for_tier(HardwareTier::AppleSilicon);
+    /// assert!(config.total_budget_bytes < 10 * 1024 * 1024 * 1024); // < 10GB
+    /// ```
+    pub fn for_tier(tier: HardwareTier) -> Self {
+        const KB: usize = 1024;
+        const MB: usize = 1024 * KB;
+        const GB: usize = 1024 * MB;
+
+        match tier {
+            HardwareTier::AppleSilicon => Self {
+                // M1/M2/M3/M4: 8-192GB unified, but shared with system
+                // Conservative: assume ~8GB available for navigation
+                total_budget_bytes: 6 * GB,
+                max_cones: 8,
+                min_cone_budget: 128 * MB,
+                peak_threshold: 0.15, // Lower threshold - fewer cones
+                min_peak_separation: std::f32::consts::PI / 12.0,
+            },
+
+            HardwareTier::NvidiaConsumer => Self {
+                // RTX 3080-5090: typically 10-24GB VRAM
+                // Assume 24GB card with ~6GB reserved for buffers/overhead
+                total_budget_bytes: 18 * GB,
+                max_cones: 16,
+                min_cone_budget: 256 * MB,
+                peak_threshold: 0.18,
+                min_peak_separation: std::f32::consts::PI / 24.0,
+            },
+
+            HardwareTier::NvidiaSpark => Self {
+                // DGX Spark / GB10: 128GB unified LPDDR5x
+                // Generous budget since it's unified memory
+                total_budget_bytes: 100 * GB,
+                max_cones: 64,
+                min_cone_budget: 512 * MB,
+                peak_threshold: 0.2,
+                min_peak_separation: std::f32::consts::PI / 48.0,
+            },
+
+            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell => Self {
+                // H100/H200/B200: 80GB+ HBM
+                // Conservative to leave room for model weights
+                total_budget_bytes: 64 * GB,
+                max_cones: 32,
+                min_cone_budget: GB, // 1GB min per cone for HPC
+                peak_threshold: 0.2,
+                min_peak_separation: std::f32::consts::PI / 32.0,
+            },
+
+            HardwareTier::AmdRdna => Self {
+                // AMD RX 7900 XTX: 24GB, similar to NVIDIA consumer
+                total_budget_bytes: 18 * GB,
+                max_cones: 16,
+                min_cone_budget: 256 * MB,
+                peak_threshold: 0.18,
+                min_peak_separation: std::f32::consts::PI / 24.0,
+            },
+
+            HardwareTier::CpuOnly => Self {
+                // CPU-only: use system RAM conservatively
+                total_budget_bytes: 4 * GB,
+                max_cones: 4,
+                min_cone_budget: 64 * MB,
+                peak_threshold: 0.1, // Very selective
+                min_peak_separation: std::f32::consts::PI / 8.0,
+            },
+
+            HardwareTier::Unknown => Self::dev(),
+        }
+    }
+
     /// Builder: set maximum number of cones.
     pub fn with_max_cones(mut self, max_cones: usize) -> Self {
         self.max_cones = max_cones;
@@ -372,6 +462,161 @@ impl BudgetConfig {
     pub fn effective_max_cones(&self) -> usize {
         let budget_limited = self.total_budget_bytes / self.min_cone_budget.max(1);
         budget_limited.min(self.max_cones)
+    }
+}
+
+// =============================================================================
+// RuntimeConfig - Unified Configuration
+// =============================================================================
+
+/// Unified runtime configuration for hardware-aware navigation.
+///
+/// Bundles hardware detection, precision routing, memory budgeting, and sphere
+/// configuration into a single struct. Use `RuntimeConfig::auto()` for automatic
+/// configuration based on detected hardware, or construct manually for explicit control.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use thrml_sphere::RuntimeConfig;
+///
+/// // Auto-detect hardware and configure everything
+/// let config = RuntimeConfig::auto();
+/// println!("Detected: {:?}", config.policy.tier);
+/// println!("Budget: {} MB", config.budget.total_budget_bytes / (1024 * 1024));
+///
+/// // Or with explicit tier override
+/// use thrml_core::compute::HardwareTier;
+/// let config = RuntimeConfig::for_tier(HardwareTier::NvidiaSpark);
+/// ```
+///
+/// # Hardware Tiers
+///
+/// | Hardware | Detection | Profile | Budget |
+/// |----------|-----------|---------|--------|
+/// | Apple Silicon | Metal adapter | CpuFp64Strict | 6GB |
+/// | NVIDIA Consumer | RTX 30-50 series | GpuMixed | 18GB |
+/// | DGX Spark / GB10 | "GRACE" / "GB10" | GpuHpcFp64 | 100GB |
+/// | H100/B200 | "H100" / "B200" | GpuHpcFp64 | 64GB |
+/// | CPU Only | No GPU | CpuFp64Strict | 4GB |
+#[derive(Clone, Debug)]
+pub struct RuntimeConfig {
+    /// Runtime policy from hardware detection (tier, precision profile, dtypes).
+    pub policy: RuntimePolicy,
+
+    /// Compute backend for routing operations to CPU/GPU.
+    pub backend: ComputeBackend,
+
+    /// Memory budget and cone limits.
+    pub budget: BudgetConfig,
+
+    /// Sphere optimization settings.
+    pub sphere: SphereConfig,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self::auto()
+    }
+}
+
+impl RuntimeConfig {
+    /// Auto-detect hardware and create appropriate configuration.
+    ///
+    /// Detection order:
+    /// 1. Query WGPU adapter for vendor/device info
+    /// 2. Classify hardware tier (Apple Silicon, NVIDIA, AMD, etc.)
+    /// 3. Set precision profile and compute backend
+    /// 4. Configure memory budget based on tier
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_sphere::RuntimeConfig;
+    ///
+    /// let config = RuntimeConfig::auto();
+    /// println!("Running on {:?}", config.policy.tier);
+    /// ```
+    pub fn auto() -> Self {
+        let policy = RuntimePolicy::detect();
+        let backend = ComputeBackend::from_policy(&policy);
+        let budget = BudgetConfig::for_tier(policy.tier);
+        let sphere = SphereConfig::default();
+
+        Self {
+            policy,
+            backend,
+            budget,
+            sphere,
+        }
+    }
+
+    /// Create configuration for a specific hardware tier.
+    ///
+    /// Useful when you know your target hardware or want to override detection.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_sphere::RuntimeConfig;
+    /// use thrml_core::compute::HardwareTier;
+    ///
+    /// // Target DGX Spark
+    /// let config = RuntimeConfig::for_tier(HardwareTier::NvidiaSpark);
+    /// assert_eq!(config.budget.max_cones, 64);
+    /// ```
+    pub fn for_tier(tier: HardwareTier) -> Self {
+        let policy = RuntimePolicy::for_tier(tier);
+        let backend = ComputeBackend::from_policy(&policy);
+        let budget = BudgetConfig::for_tier(tier);
+        let sphere = SphereConfig::default();
+
+        Self {
+            policy,
+            backend,
+            budget,
+            sphere,
+        }
+    }
+
+    /// Builder: override the budget configuration.
+    pub fn with_budget(mut self, budget: BudgetConfig) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Builder: override the sphere configuration.
+    pub fn with_sphere(mut self, sphere: SphereConfig) -> Self {
+        self.sphere = sphere;
+        self
+    }
+
+    /// Builder: override the compute backend.
+    pub fn with_backend(mut self, backend: ComputeBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    /// Check if this configuration is for HPC-class hardware.
+    ///
+    /// Returns true for NVIDIA Hopper, Blackwell, and Spark tiers.
+    pub fn is_hpc(&self) -> bool {
+        self.policy.is_hpc_tier()
+    }
+
+    /// Check if this configuration uses unified memory.
+    ///
+    /// Returns true for Apple Silicon and DGX Spark (both use unified memory).
+    pub fn is_unified_memory(&self) -> bool {
+        matches!(
+            self.policy.tier,
+            HardwareTier::AppleSilicon | HardwareTier::NvidiaSpark
+        )
+    }
+
+    /// Get memory budget in human-readable form.
+    pub fn budget_gb(&self) -> f64 {
+        self.budget.total_budget_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     }
 }
 

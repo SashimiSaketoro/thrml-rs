@@ -147,6 +147,12 @@ pub enum HardwareTier {
     /// Strong FP64 + FP8/BF16 tensor cores for mixed precision.
     NvidiaBlackwell,
 
+    /// NVIDIA DGX Spark / GB10 Grace Blackwell: Unified memory architecture.
+    /// 128GB LPDDR5x unified memory (like Apple Silicon but with Blackwell GPU).
+    /// 40 TFLOPS FP64 - good precision support on GPU.
+    /// Optimized for in-memory inference rather than raw compute.
+    NvidiaSpark,
+
     /// CPU-only fallback (no GPU available or disabled).
     CpuOnly,
 
@@ -188,6 +194,7 @@ pub mod vendor_ids {
 /// | AMD RDNA 3/4 | `GpuMixed` | Minimal FP64 support |
 /// | NVIDIA H100/H200 | `GpuHpcFp64` | Strong FP64 support |
 /// | NVIDIA B200/GB200 | `GpuHpcFp64` | Strong FP64 + FP8 |
+/// | DGX Spark / GB10 | `GpuHpcFp64` | 40 TFLOPS FP64, unified memory |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PrecisionProfile {
     /// All precision-sensitive operations on CPU with fp64/complex128.
@@ -335,6 +342,29 @@ impl RuntimePolicy {
         }
     }
 
+    /// Policy for NVIDIA DGX Spark / GB10 Grace Blackwell.
+    ///
+    /// Unique architecture: unified LPDDR5x memory (like Apple Silicon)
+    /// but with Blackwell GPU capable of 40 TFLOPS FP64.
+    ///
+    /// - 128GB unified memory: no discrete VRAM limit
+    /// - Good FP64 support: can run precision ops on GPU
+    /// - Lower bandwidth than HBM: optimized for inference, not training
+    ///
+    /// Uses `GpuHpcFp64` profile since GPU f64 is viable.
+    pub fn nvidia_spark() -> Self {
+        Self {
+            tier: HardwareTier::NvidiaSpark,
+            profile: PrecisionProfile::GpuHpcFp64,
+            real_dtype: DType::F64,
+            complex_dtype: DType::F64,
+            use_gpu: true,
+            allow_mixed_precision: true,
+            // Slightly looser tolerance than H100/B200 due to unified memory
+            max_rel_error: 1e-9,
+        }
+    }
+
     /// CPU-only policy.
     ///
     /// Maximum precision, no GPU usage. Useful for debugging or
@@ -375,6 +405,7 @@ impl RuntimePolicy {
             HardwareTier::AmdRdna => Self::amd_rdna(),
             HardwareTier::NvidiaHopper => Self::nvidia_hopper(),
             HardwareTier::NvidiaBlackwell => Self::nvidia_blackwell(),
+            HardwareTier::NvidiaSpark => Self::nvidia_spark(),
             HardwareTier::CpuOnly => Self::cpu_only(),
             HardwareTier::Unknown => Self::conservative_default(),
         }
@@ -425,13 +456,20 @@ impl RuntimePolicy {
             vendor_ids::APPLE => HardwareTier::AppleSilicon,
 
             vendor_ids::NVIDIA => {
-                // Distinguish consumer vs datacenter by device name
+                // Distinguish consumer vs datacenter vs unified by device name
                 let name_upper = gpu.name.to_uppercase();
 
                 if name_upper.contains("H100") || name_upper.contains("H200") {
                     HardwareTier::NvidiaHopper
                 } else if name_upper.contains("B200") || name_upper.contains("GB200") {
+                    // Datacenter Blackwell (discrete HBM)
                     HardwareTier::NvidiaBlackwell
+                } else if name_upper.contains("GB10")
+                    || name_upper.contains("GRACE")
+                    || name_upper.contains("DGX SPARK")
+                {
+                    // GB10 Grace Blackwell (unified LPDDR5x) - DGX Spark
+                    HardwareTier::NvidiaSpark
                 } else if name_upper.contains("A100") || name_upper.contains("A800") {
                     // Ampere datacenter - treat like Hopper
                     HardwareTier::NvidiaHopper
@@ -454,12 +492,13 @@ impl RuntimePolicy {
 
     /// Check if this policy is for HPC-class GPU hardware.
     ///
-    /// Returns true for NVIDIA Hopper (H100/H200) and Blackwell (B200/GB200).
-    /// These GPUs have strong FP64 support and can run precision ops on GPU.
+    /// Returns true for NVIDIA Hopper (H100/H200), Blackwell (B200/GB200),
+    /// and Spark (GB10). These GPUs have strong FP64 support and can run
+    /// precision ops on GPU.
     pub fn is_hpc_tier(&self) -> bool {
         matches!(
             self.tier,
-            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell
+            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell | HardwareTier::NvidiaSpark
         )
     }
 

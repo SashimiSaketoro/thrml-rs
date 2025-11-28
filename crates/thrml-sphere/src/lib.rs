@@ -318,3 +318,6 @@ pub use training::*;
 
 // Re-export key types from nested modules for convenience
 pub use compute::substring::SubstringConfig;
+
+// Re-export hardware tier types from thrml-core for RuntimeConfig users
+pub use thrml_core::compute::{HardwareTier, PrecisionProfile, RuntimePolicy};

@@ -238,41 +238,22 @@ This project is inspired by [Extropic's THRML](https://github.com/extropic-ai/th
 THRML-RS is an independent Rust implementation providing the same functionality with native 
 GPU acceleration.
 
-## Experimental: Hyperspherical Navigation (`sphere` branch)
-
-The `sphere` branch contains an experimental crate for hyperspherical embedding optimization and multi-cone EBM navigation:
+## Experimental: `thrml-sphere` (sphere branch)
 
 | Crate | Description |
 |-------|-------------|
-| [`thrml-sphere`](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) | Langevin dynamics sphere optimization, ROOTS indexing, multi-cone navigation |
+| [`thrml-sphere`](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) | Hyperspherical navigation, ROOTS indexing, multi-cone EBM |
 
-### Features (sphere branch)
+### What it does
 
-- **Sphere Optimization**: Water-filling Langevin dynamics for embedding placement
-- **ROOTS Index**: Compressed inner-shell index with 3000:1 compression
-- **Multi-Cone Navigation**: Budget-allocated parallel EBM navigation
-- **Advanced Training**: Hard negative mining, PCD, curriculum learning
-- **Substring Coupling**: Byte-level structure for code/text clustering
+- **SphereEBM**: Langevin dynamics to place embeddings on a hypersphere
+- **NavigatorEBM**: EBM with learnable weights for similarity, radial alignment, path length
+- **MultiConeNavigator**: Spawns cones from ROOTS peaks, allocates budget per cone
+- **RootsIndex**: Compresses inner shells ~3000:1 for coarse routing
 
-### Conceptual Model
+Training: contrastive divergence with hard negatives, PCD, curriculum scheduling.
 
-`thrml-sphere` treats your embedding space as a thermodynamic object:
-
-- **SphereEBM** runs Langevin "water-filling" dynamics over a hypersphere of embeddings
-- **NavigatorEBM** defines an energy landscape over:
-  - Semantic similarity (embedding distance)
-  - Radial shell alignment
-  - Hypergraph path structure
-  - Entropy / confidence
-  - Path length and budget penalties
-- **MultiConeNavigator** manages multiple "cones" (localized regions of the sphere), each with its own budget:
-  - Concentrate samples around promising ROOTS peaks
-  - Keep some budget for exploration / long-range jumps
-  - Compress inner shells via a ROOTS index (target ~3000:1)
-
-Training uses contrastive divergence variants with persistent particle buffers, hard negative mining, SGLD-based negative sampling, and curriculum schedules for negative difficulty.
-
-### Minimal Example
+### Example
 
 ```rust
 use thrml_core::backend::init_gpu_device;
@@ -310,17 +291,11 @@ fn main() {
 }
 ```
 
-This uses the same `RuntimeConfig` / `ComputeBackend` system as the core crates, so precision-sensitive operations route correctly based on your hardware.
+Uses the same `RuntimeConfig` / `ComputeBackend` as core crates.
 
-### BLT / Byte-Latent Integration
+### BLT Integration
 
-On this branch, `thrml-sphere` is designed to work with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn) as a full pipeline:
-
-- **`blt-burn`** provides the byte-latent transformer front-end and patch-level embeddings
-- **`thrml-sphere`** provides the hyperspherical navigator and ROOTS index
-- **`MultiConeNavigator`** can be used as a backend for different frontends (BLT or others) as long as they provide compatible embedding tensors
-
-The pipeline is modular: you can swap in different encoders without touching the navigator or thermodynamic core.
+Works with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn): BLT provides embeddings, `thrml-sphere` provides the navigator. Any encoder that outputs compatible tensors will work.
 
 ### Using the sphere branch
 

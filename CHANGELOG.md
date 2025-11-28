@@ -76,60 +76,53 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 
 ### Added
 
-#### Hyperspherical Navigation (`thrml-sphere`) - NEW CRATE
-- `SphereEBM`: Langevin dynamics-based sphere optimization ("water-filling")
-- `NavigatorEBM`: Multi-cone EBM navigation through hyperspherical embeddings
-- `MultiConeNavigator`: ROOTS-guided navigation with dynamic budget allocation
-- `RootsIndex`: Compressed inner-shell index layer (3000:1 compression)
-- Ising max-cut partitioning with substring coupling for byte-level structure
-- `SubstringConfig`: Byte-level substring similarity for code/text clustering
-- `BudgetConfig`: Memory budget allocation across navigation cones
-- Scale profiles: `Dev`, `Small`, `Large` for different use cases
+#### `thrml-sphere` (new crate)
 
-#### Training Infrastructure (`thrml-sphere`)
-- `TrainableNavigatorEBM`: End-to-end trainable navigator
-- `TrainingDataset`: Train/validation split with similarity-based pair generation
-- `ExtendedTrainingConfig`: Validation, early stopping, checkpointing
-- `TuningGrid` and `TuningSession`: Hyperparameter search (grid/random)
-- `NavigationMetrics`: Recall@k, MRR, nDCG evaluation
+- `SphereEBM`: Langevin dynamics on hypersphere
+- `NavigatorEBM`: EBM navigation with learnable weights
+- `MultiConeNavigator`: ROOTS-guided multi-cone navigation
+- `RootsIndex`: Compressed inner-shell index (3000:1)
+- `SubstringConfig`: Byte-level substring similarity
+- `BudgetConfig`: Memory budget per cone
+- Scale profiles: `Dev`, `Small`, `Large`
 
-#### Advanced Contrastive Divergence (`thrml-sphere`)
-- `HardNegativeMiner`: Similarity-based hard negative mining with false-negative filtering
-- `PersistentParticleBuffer`: Persistent Contrastive Divergence (PCD) with fantasy particles
-- `NegativeCurriculumSchedule`: Progressive difficulty scheduling (Easy→Medium→Hard)
-- `SGLDNegativeSampler`: SGLD-based negative phase sampling
-- `AdvancedTrainingConfig`: Unified config for all CD techniques
-- Learning rate warmup and cosine annealing schedules
+Training:
+- `TrainableNavigatorEBM`: Trainable navigator wrapper
+- `TrainingDataset`: Train/val split, pair generation
+- `ExtendedTrainingConfig`: Early stopping, checkpointing
+- `TuningGrid`, `TuningSession`: Hyperparameter search
+- `NavigationMetrics`: Recall@k, MRR, nDCG
 
-#### Retrieval Metrics (`thrml-core::metrics`) - NEW MODULE
-- `recall_at_k()`: Recall@k for single query evaluation
-- `mrr()`: Mean Reciprocal Rank for single query
-- `ndcg()`: Normalized Discounted Cumulative Gain (binary relevance)
-- `ndcg_multi()`: nDCG with multiple relevant items (graded relevance)
-- `find_rank()`: Find 1-indexed rank of target in results
-- `evaluate_retrieval()`: Batch evaluation over multiple queries
-- `RetrievalMetrics`: Aggregated metrics struct with `Display` impl
+CD variants:
+- `HardNegativeMiner`: Hard negatives with false-negative filtering
+- `PersistentParticleBuffer`: PCD with fantasy particles
+- `NegativeCurriculumSchedule`: Easy→Medium→Hard scheduling
+- `SGLDNegativeSampler`: SGLD negative sampling
+- LR warmup and cosine annealing
 
-#### Text Similarity (`thrml-core::text`) - NEW MODULE
-- `RollingHash`: Efficient O(1) sliding window polynomial hash
-- `ngram_hashes()`: Compute all n-gram hashes for a byte sequence
-- `ngram_hashes_with_length()`: Include n-gram length for multi-scale comparison
-- `jaccard_similarity()`: Set-based Jaccard coefficient
-- `contains_subsequence()`: Check contiguous substring containment
-- `check_containment()`: Mutual containment check with size info
-- `hybrid_similarity()`: Weighted combination of two similarity scores
-- `TextSimilarityConfig`: Configuration struct with builder pattern
-- `text_similarity()`: High-level text similarity function
+#### `thrml-core::metrics` (new module)
 
-#### Max-Cut Graph Partitioning (`thrml-samplers::maxcut`) - NEW MODULE
-- `maxcut_gibbs()`: Gibbs/Metropolis-Hastings sampling for max-cut
-- `maxcut_multistart()`: Multiple random restarts, returns best partition
-- `maxcut_greedy()`: Fast greedy local search
-- `cut_value()`: Compute total weight of edges crossing partition
-- `ising_energy()`: Compute Ising energy for spin configuration
-- `partition_to_binary()` / `binary_to_partition()`: Convert representations
+- `recall_at_k()`, `mrr()`, `ndcg()`, `ndcg_multi()`
+- `find_rank()`: 1-indexed rank lookup
+- `evaluate_retrieval()`: Batch evaluation
+- `RetrievalMetrics`: Aggregated struct
 
-#### Hardware-Aware Precision Routing (`thrml-core`)
+#### `thrml-core::text` (new module)
+
+- `RollingHash`: O(1) sliding window hash
+- `ngram_hashes()`, `ngram_hashes_with_length()`
+- `jaccard_similarity()`, `contains_subsequence()`
+- `TextSimilarityConfig`, `text_similarity()`
+
+#### `thrml-samplers::maxcut` (new module)
+
+- `maxcut_gibbs()`: Gibbs sampling for max-cut
+- `maxcut_multistart()`: Multi-restart best partition
+- `maxcut_greedy()`: Greedy local search
+- `cut_value()`, `ising_energy()`
+- `partition_to_binary()`, `binary_to_partition()`
+
+#### Hardware-Aware Routing (`thrml-core`)
 - `RuntimePolicy`: Auto-detect hardware and configure precision routing
   - `RuntimePolicy::detect()`: Automatic GPU detection via WGPU adapter info
   - `RuntimePolicy::apple_silicon()`, `nvidia_consumer()`, `nvidia_hopper()`, `nvidia_blackwell()`: Tier-specific constructors

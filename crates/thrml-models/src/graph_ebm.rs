@@ -521,14 +521,14 @@ mod tests {
         // Use deterministic positions for reproducible tests across different hardware
         // Values chosen to cover a range of positive/negative coordinates
         let pos_data: Vec<f32> = vec![
-            1.2, -0.5, 2.1,   // node 0
-            -1.8, 0.3, -0.7,  // node 1
-            0.9, 1.5, -2.3,   // node 2
-            -0.4, -1.2, 0.8,  // node 3
-            2.5, 0.1, -1.1,   // node 4
-            -1.3, 2.0, 0.5,   // node 5
-            0.7, -1.8, 1.9,   // node 6
-            -2.1, 0.6, -0.3,  // node 7
+            1.2, -0.5, 2.1, // node 0
+            -1.8, 0.3, -0.7, // node 1
+            0.9, 1.5, -2.3, // node 2
+            -0.4, -1.2, 0.8, // node 3
+            2.5, 0.1, -1.1, // node 4
+            -1.3, 2.0, 0.5, // node 5
+            0.7, -1.8, 1.9, // node 6
+            -2.1, 0.6, -0.3, // node 7
         ];
         let pos_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(pos_data.as_slice(), &device);
         let positions: Tensor<WgpuBackend, 2> = pos_1d.reshape([n as i32, d as i32]);

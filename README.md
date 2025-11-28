@@ -69,7 +69,7 @@ fn main() {
 
 ## Installation
 
-Add to your `Cargo.toml`:
+### From crates.io (stable, main branch)
 
 ```toml
 [dependencies]
@@ -77,6 +77,21 @@ thrml-core = "0.1"
 thrml-samplers = "0.1"
 thrml-models = "0.1"
 thrml-observers = "0.1"
+```
+
+### From Git (sphere branch, experimental)
+
+The `sphere` branch includes additional crates and features not yet published to crates.io:
+
+```toml
+[dependencies]
+thrml-core = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-samplers = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-models = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-observers = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+
+# Experimental: hyperspherical navigation (sphere branch only)
+thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
 ```
 
 ### Feature Flags
@@ -180,7 +195,11 @@ cargo run --release --example train_mnist
 
 ## Documentation
 
-- [API Documentation](https://docs.rs/thrml)
+- [API Documentation](https://docs.rs/thrml) - Published crates (main branch)
+- [Core API](docs/api/core.md) - Nodes, blocks, compute backends, metrics, text utilities
+- [Samplers API](docs/api/samplers.md) - Gibbs, Bernoulli, Gaussian, max-cut algorithms
+- [Models API](docs/api/models.md) - Ising, discrete EBMs, continuous factors
+- [Sphere API](docs/api/sphere.md) - Hyperspherical navigation (sphere branch)
 - [Architecture Guide](docs/architecture.md)
 - [Examples README](crates/thrml-examples/README.md)
 
@@ -308,10 +327,14 @@ The pipeline is modular: you can swap in different encoders without touching the
 ```bash
 # Clone with sphere branch
 git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
+cd thrml-rs
+cargo build --release --features gpu
 
-# Or add as git dependency
-[dependencies]
-thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+# Run sphere-specific tests
+cargo test -p thrml-sphere --features gpu
 ```
 
-See the [sphere branch documentation](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) for full API reference.
+For API details, see:
+- [Sphere API Reference](docs/api/sphere.md) - Full `thrml-sphere` documentation
+- [Core API Reference](docs/api/core.md) - Includes RuntimePolicy, metrics, text similarity
+- [Samplers API Reference](docs/api/samplers.md) - Includes max-cut algorithms

@@ -108,6 +108,10 @@ pub enum OpType {
     /// Loss reduction (sum, mean).
     /// Precision-sensitive for large batch accumulation.
     LossReduction,
+
+    /// Batched energy computation for forward pass.
+    /// Highly parallel, ideal for GPU.
+    BatchEnergyForward,
 }
 
 // =============================================================================
@@ -142,6 +146,12 @@ pub enum HardwareTier {
     /// NVIDIA B200/GB200 (Blackwell datacenter): Compute capability 10.0.
     /// Strong FP64 + FP8/BF16 tensor cores for mixed precision.
     NvidiaBlackwell,
+
+    /// NVIDIA DGX Spark / GB10 Grace Blackwell: Unified memory architecture.
+    /// 128GB LPDDR5x unified memory (like Apple Silicon but with Blackwell GPU).
+    /// 40 TFLOPS FP64 - good precision support on GPU.
+    /// Optimized for in-memory inference rather than raw compute.
+    NvidiaSpark,
 
     /// CPU-only fallback (no GPU available or disabled).
     CpuOnly,
@@ -184,6 +194,7 @@ pub mod vendor_ids {
 /// | AMD RDNA 3/4 | `GpuMixed` | Minimal FP64 support |
 /// | NVIDIA H100/H200 | `GpuHpcFp64` | Strong FP64 support |
 /// | NVIDIA B200/GB200 | `GpuHpcFp64` | Strong FP64 + FP8 |
+/// | DGX Spark / GB10 | `GpuHpcFp64` | 40 TFLOPS FP64, unified memory |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PrecisionProfile {
     /// All precision-sensitive operations on CPU with fp64/complex128.
@@ -331,6 +342,29 @@ impl RuntimePolicy {
         }
     }
 
+    /// Policy for NVIDIA DGX Spark / GB10 Grace Blackwell.
+    ///
+    /// Unique architecture: unified LPDDR5x memory (like Apple Silicon)
+    /// but with Blackwell GPU capable of 40 TFLOPS FP64.
+    ///
+    /// - 128GB unified memory: no discrete VRAM limit
+    /// - Good FP64 support: can run precision ops on GPU
+    /// - Lower bandwidth than HBM: optimized for inference, not training
+    ///
+    /// Uses `GpuHpcFp64` profile since GPU f64 is viable.
+    pub fn nvidia_spark() -> Self {
+        Self {
+            tier: HardwareTier::NvidiaSpark,
+            profile: PrecisionProfile::GpuHpcFp64,
+            real_dtype: DType::F64,
+            complex_dtype: DType::F64,
+            use_gpu: true,
+            allow_mixed_precision: true,
+            // Slightly looser tolerance than H100/B200 due to unified memory
+            max_rel_error: 1e-9,
+        }
+    }
+
     /// CPU-only policy.
     ///
     /// Maximum precision, no GPU usage. Useful for debugging or
@@ -371,6 +405,7 @@ impl RuntimePolicy {
             HardwareTier::AmdRdna => Self::amd_rdna(),
             HardwareTier::NvidiaHopper => Self::nvidia_hopper(),
             HardwareTier::NvidiaBlackwell => Self::nvidia_blackwell(),
+            HardwareTier::NvidiaSpark => Self::nvidia_spark(),
             HardwareTier::CpuOnly => Self::cpu_only(),
             HardwareTier::Unknown => Self::conservative_default(),
         }
@@ -421,13 +456,20 @@ impl RuntimePolicy {
             vendor_ids::APPLE => HardwareTier::AppleSilicon,
 
             vendor_ids::NVIDIA => {
-                // Distinguish consumer vs datacenter by device name
+                // Distinguish consumer vs datacenter vs unified by device name
                 let name_upper = gpu.name.to_uppercase();
 
                 if name_upper.contains("H100") || name_upper.contains("H200") {
                     HardwareTier::NvidiaHopper
                 } else if name_upper.contains("B200") || name_upper.contains("GB200") {
+                    // Datacenter Blackwell (discrete HBM)
                     HardwareTier::NvidiaBlackwell
+                } else if name_upper.contains("GB10")
+                    || name_upper.contains("GRACE")
+                    || name_upper.contains("DGX SPARK")
+                {
+                    // GB10 Grace Blackwell (unified LPDDR5x) - DGX Spark
+                    HardwareTier::NvidiaSpark
                 } else if name_upper.contains("A100") || name_upper.contains("A800") {
                     // Ampere datacenter - treat like Hopper
                     HardwareTier::NvidiaHopper
@@ -450,12 +492,13 @@ impl RuntimePolicy {
 
     /// Check if this policy is for HPC-class GPU hardware.
     ///
-    /// Returns true for NVIDIA Hopper (H100/H200) and Blackwell (B200/GB200).
-    /// These GPUs have strong FP64 support and can run precision ops on GPU.
+    /// Returns true for NVIDIA Hopper (H100/H200), Blackwell (B200/GB200),
+    /// and Spark (GB10). These GPUs have strong FP64 support and can run
+    /// precision ops on GPU.
     pub fn is_hpc_tier(&self) -> bool {
         matches!(
             self.tier,
-            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell
+            HardwareTier::NvidiaHopper | HardwareTier::NvidiaBlackwell | HardwareTier::NvidiaSpark
         )
     }
 
@@ -780,7 +823,8 @@ impl ComputeBackend {
                 false
             }
             ComputeBackend::Adaptive => {
-                // Adaptive logic: always use CPU for precision-sensitive ops
+                // Adaptive logic: use CPU for precision-sensitive ops
+                // This includes training ops that can overflow in f32
                 matches!(
                     op,
                     OpType::IsingSampling
@@ -788,6 +832,8 @@ impl ComputeBackend {
                         | OpType::SphericalHarmonics
                         | OpType::ArcTrig
                         | OpType::ComplexArithmetic
+                        | OpType::GradientCompute  // f32 accumulation can overflow
+                        | OpType::LossReduction // logsumexp needs f64 for large batches
                 )
             }
             #[cfg(feature = "cuda")]
@@ -816,6 +862,56 @@ impl ComputeBackend {
     /// Check if an operation should run on GPU
     pub fn use_gpu(&self, op: OpType, size: Option<usize>) -> bool {
         !self.use_cpu(op, size)
+    }
+
+    /// Try GPU operation with automatic CPU fallback.
+    ///
+    /// Executes `gpu_fn` first. If it fails, notifies user and runs `cpu_fn`.
+    /// Returns the result and whether fallback occurred.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let (result, fell_back) = backend.try_gpu_with_fallback(
+    ///     || gpu_energy_compute(&tensor),
+    ///     || cpu_energy_compute_f64(&data),
+    ///     "energy computation",
+    /// );
+    /// ```
+    pub fn try_gpu_with_fallback<T, E, F, G>(
+        &self,
+        gpu_fn: F,
+        cpu_fn: G,
+        op_name: &str,
+    ) -> (T, bool)
+    where
+        F: FnOnce() -> Result<T, E>,
+        G: FnOnce() -> T,
+        E: std::fmt::Display,
+    {
+        match gpu_fn() {
+            Ok(result) => (result, false),
+            Err(e) => {
+                eprintln!("[thrml] GPU {} failed, falling back to CPU: {}", op_name, e);
+                (cpu_fn(), true)
+            }
+        }
+    }
+
+    /// Try GPU operation, fallback to CPU if this backend prefers CPU for the op.
+    ///
+    /// Unlike `try_gpu_with_fallback`, this checks the routing first and only
+    /// attempts GPU if the backend says to use GPU.
+    pub fn run_routed<T, F, G>(&self, op: OpType, size: Option<usize>, gpu_fn: F, cpu_fn: G) -> T
+    where
+        F: FnOnce() -> T,
+        G: FnOnce() -> T,
+    {
+        if self.use_cpu(op, size) {
+            cpu_fn()
+        } else {
+            gpu_fn()
+        }
     }
 }
 
@@ -1074,10 +1170,9 @@ mod tests {
 
         #[cfg(not(target_os = "macos"))]
         {
-            // On non-macOS without GPU detection, default is conservative (CpuFp64Strict)
-            // which routes precision-sensitive ops to CPU
-            assert!(backend.use_cpu(OpType::IsingSampling, None));
-            assert!(!backend.use_cpu(OpType::Similarity, None)); // General ops still go to GPU
+            // On non-macOS, default is Adaptive (routes precision-sensitive ops to CPU)
+            assert!(backend.use_cpu(OpType::IsingSampling, None)); // Adaptive routes this to CPU
+            assert!(!backend.use_cpu(OpType::Similarity, None)); // But general ops go to GPU
         }
     }
 

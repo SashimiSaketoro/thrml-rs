@@ -14,18 +14,25 @@
 //! ## Hybrid Compute Backend
 //!
 //! The [`compute`] module provides CPU/GPU routing for precision-sensitive operations,
-//! optimized for Apple Silicon's unified memory architecture:
+//! with automatic hardware detection and tier-based precision profiles:
 //!
+//! - [`HardwareTier`]: Hardware classification (Apple Silicon, NVIDIA consumer/datacenter, AMD RDNA)
+//! - [`PrecisionProfile`]: Precision strategy (CpuFp64Strict, GpuMixed, GpuHpcFp64)
+//! - [`RuntimePolicy`]: Complete runtime configuration with auto-detection
 //! - [`ComputeBackend`]: Backend selection (CPU, GPU, Hybrid, Adaptive)
 //! - [`OpType`]: Operation classification for routing decisions
 //! - [`PrecisionMode`]: Precision mode selection (GpuFast, CpuPrecise, Adaptive)
 //! - [`HybridConfig`]: Combined backend + precision configuration
 //!
 //! ```rust,ignore
-//! use thrml_core::{ComputeBackend, OpType};
+//! use thrml_core::{RuntimePolicy, ComputeBackend, OpType};
 //!
-//! // Auto-detect Apple Silicon unified memory
-//! let backend = ComputeBackend::apple_silicon();
+//! // Auto-detect hardware and create appropriate policy
+//! let policy = RuntimePolicy::detect();
+//! println!("Detected: {:?} with {:?}", policy.tier, policy.profile);
+//!
+//! // Create backend from policy
+//! let backend = ComputeBackend::from_policy(&policy);
 //!
 //! // Route precision-sensitive ops to CPU f64
 //! if backend.use_cpu(OpType::IsingSampling, None) {
@@ -79,6 +86,10 @@ pub use blockspec::*;
 pub use compute::*;
 pub use config::*;
 pub use node::*;
+
+// Re-export GpuInfo only when gpu feature is enabled
+#[cfg(feature = "gpu")]
+pub use backend::GpuInfo;
 
 #[cfg(feature = "gpu")]
 pub use distance::*;

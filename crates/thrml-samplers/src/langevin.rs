@@ -9,6 +9,15 @@
 //! ```
 //! where ξ is Gaussian noise.
 //!
+//! ## Precision Routing
+//!
+//! When using [`langevin_step_2d_routed`] with a [`ComputeBackend`], the sampler
+//! routes gradient accumulation based on hardware capabilities. While the Langevin
+//! step itself is fairly stable, gradient computation (done externally) is where
+//! precision issues typically arise.
+//!
+//! For gradient computation in energy models, see [`OpType::GradientCompute`].
+//!
 //! ## Example
 //!
 //! ```rust,ignore
@@ -21,6 +30,7 @@
 use crate::RngKey;
 use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
+use thrml_core::compute::{ComputeBackend, OpType};
 
 /// Configuration for Langevin dynamics.
 #[derive(Clone, Debug)]
@@ -100,6 +110,85 @@ pub fn langevin_step_2d(
     let diffusion = noise.mul_scalar(config.noise_scale());
 
     state.clone() + drift + diffusion
+}
+
+/// Perform one Langevin step with precision routing.
+///
+/// Routes computation based on [`ComputeBackend`] configuration:
+/// - **CPU f64**: If `backend.use_cpu(OpType::LangevinStep, ...)` returns true
+/// - **GPU f32**: Default path
+///
+/// Note: The main precision issues in Langevin dynamics come from gradient
+/// computation, which should use [`OpType::GradientCompute`] for routing.
+pub fn langevin_step_2d_routed(
+    backend: &ComputeBackend,
+    state: &Tensor<WgpuBackend, 2>,
+    gradient: &Tensor<WgpuBackend, 2>,
+    config: &LangevinConfig,
+    device: &burn::backend::wgpu::WgpuDevice,
+) -> Tensor<WgpuBackend, 2> {
+    let shape = state.dims();
+    let n_elements = shape[0] * shape[1];
+
+    // Route based on backend
+    if backend.use_cpu(OpType::LangevinStep, Some(n_elements)) {
+        langevin_step_2d_cpu_f64(state, gradient, config, device)
+    } else {
+        langevin_step_2d(state, gradient, config, device)
+    }
+}
+
+/// Langevin step with CPU f64 accumulation.
+///
+/// Extracts tensors to CPU, performs step in f64, converts back.
+/// Useful for very large gradient magnitudes or extreme state values.
+fn langevin_step_2d_cpu_f64(
+    state: &Tensor<WgpuBackend, 2>,
+    gradient: &Tensor<WgpuBackend, 2>,
+    config: &LangevinConfig,
+    device: &burn::backend::wgpu::WgpuDevice,
+) -> Tensor<WgpuBackend, 2> {
+    let shape = state.dims();
+    let n = shape[0];
+    let d = shape[1];
+    
+    // Extract data
+    let state_data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
+    let grad_data: Vec<f32> = gradient.clone().into_data().to_vec().unwrap();
+    
+    // Apply gradient clipping in f64 if enabled
+    let grad_f64: Vec<f64> = if let Some(max_grad) = config.gradient_clip {
+        let max_grad_f64 = max_grad as f64;
+        grad_data.iter()
+            .map(|&g| (g as f64).clamp(-max_grad_f64, max_grad_f64))
+            .collect()
+    } else {
+        grad_data.iter().map(|&g| g as f64).collect()
+    };
+    
+    // Compute step in f64
+    let step_size_f64 = config.step_size as f64;
+    let noise_scale_f64 = config.noise_scale() as f64;
+    
+    // Use thread_rng for noise (simpler than integrating RngKey for CPU path)
+    use rand_distr::{Distribution as RandDist, StandardNormal};
+    let mut rng = rand::thread_rng();
+    
+    let result_f64: Vec<f64> = state_data.iter()
+        .zip(grad_f64.iter())
+        .map(|(&s, &g)| {
+            let s_f64 = s as f64;
+            let drift = -g * step_size_f64;
+            let noise: f64 = StandardNormal.sample(&mut rng);
+            let diffusion = noise * noise_scale_f64;
+            s_f64 + drift + diffusion
+        })
+        .collect();
+    
+    // Convert back to f32 tensor
+    let result_f32: Vec<f32> = result_f64.iter().map(|&x| x as f32).collect();
+    Tensor::<WgpuBackend, 1>::from_floats(result_f32.as_slice(), device)
+        .reshape([n as i32, d as i32])
 }
 
 /// Perform one Langevin step on a 1D state tensor.

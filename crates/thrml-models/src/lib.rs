@@ -55,21 +55,43 @@
 //! - [`ising::estimate_kl_grad`]: Estimate KL divergence gradients
 //! - [`ising::hinton_init`]: Initialize states from marginal biases
 //!
+//! ## Precision Routing
+//!
+//! All factor types support precision routing via `factor_energy_routed()`:
+//!
+//! ```rust,ignore
+//! use thrml_models::{SpinEBMFactor, RuntimePolicy, ComputeBackend};
+//!
+//! // Auto-detect hardware and create policy
+//! let policy = RuntimePolicy::detect();
+//! let backend = ComputeBackend::from_policy(&policy);
+//!
+//! // Compute energy with precision routing
+//! let energy = factor.factor_energy_routed(&backend, &state, &spec, &device);
+//!
+//! // On Apple Silicon: EnergyCompute may use CPU f64 for large problems
+//! // On HPC GPUs with CUDA: Uses GPU f64 for both speed and precision
+//! ```
+//!
 //! ## Hybrid Compute Backend
 //!
 //! Re-exports from `thrml-core` for CPU/GPU precision routing:
 //!
-//! - [`ComputeBackend`]: CPU/GPU/Hybrid backend selection
-//! - [`OpType`]: Operation classification for routing
-//! - [`PrecisionMode`]: Precision mode selection
-//! - [`HybridConfig`]: Full hybrid compute configuration
+//! - [`RuntimePolicy`]: Auto-detects hardware and creates appropriate precision profile
+//! - [`ComputeBackend`]: Backend selection (CPU, GPU, Hybrid, Adaptive, HpcF64)
+//! - [`OpType`]: Operation classification for routing decisions
+//! - [`HardwareTier`]: Hardware classification (Apple Silicon, NVIDIA tiers, AMD)
+//! - [`PrecisionProfile`]: Precision strategy per hardware tier
 //!
 //! ```rust,ignore
-//! use thrml_models::{ComputeBackend, OpType};
+//! use thrml_models::{RuntimePolicy, ComputeBackend, OpType};
 //!
-//! let backend = ComputeBackend::apple_silicon();
-//! if backend.use_cpu(OpType::IsingSampling, None) {
-//!     // Use CPU f64 path for precision
+//! let policy = RuntimePolicy::detect();
+//! let backend = ComputeBackend::from_policy(&policy);
+//!
+//! // Check if precision-sensitive ops should use CPU
+//! if backend.use_cpu(OpType::EnergyCompute, Some(1000000)) {
+//!     // Route large energy computations to CPU f64
 //! }
 //! ```
 
@@ -92,4 +114,7 @@ pub use graph_utils::*;
 pub use ising::*;
 
 // Re-export compute types from thrml-core for precision routing
-pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};
+pub use thrml_core::compute::{
+    ComputeBackend, HardwareTier, HybridConfig, OpType, PrecisionMode, PrecisionProfile,
+    RuntimePolicy,
+};

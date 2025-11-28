@@ -11,6 +11,27 @@
 //! - **Gaussian Sampler**: For continuous variables in Gaussian PGMs via [`GaussianSampler`]
 //! - **Langevin Sampler**: Overdamped Langevin dynamics for continuous EBMs via [`LangevinConfig`]
 //!
+//! ## Precision Routing
+//!
+//! All samplers support precision routing via `*_routed()` methods:
+//!
+//! ```rust,ignore
+//! use thrml_samplers::{SpinGibbsConditional, RuntimePolicy, ComputeBackend, OpType};
+//!
+//! // Auto-detect hardware and create policy
+//! let policy = RuntimePolicy::detect();
+//! let backend = ComputeBackend::from_policy(&policy);
+//!
+//! // Sample with precision routing
+//! let sampler = SpinGibbsConditional::new();
+//! let (samples, _) = sampler.sample_routed(
+//!     &backend, key, &interactions, &active, &states, &n_spin, (), &spec, &device
+//! );
+//!
+//! // On Apple Silicon: IsingSampling routes to CPU f64 for precision
+//! // On HPC GPUs with CUDA: Uses GPU f64 for both speed and precision
+//! ```
+//!
 //! ## RNG Key System
 //!
 //! Deterministic RNG key management (similar to JAX):
@@ -37,12 +58,21 @@
 //!
 //! Re-exports from `thrml-core` for CPU/GPU precision routing:
 //!
-//! ```rust,ignore
-//! use thrml_samplers::{ComputeBackend, PrecisionMode};
+//! - [`RuntimePolicy`]: Auto-detects hardware and creates appropriate precision profile
+//! - [`ComputeBackend`]: Backend selection (CPU, GPU, Hybrid, Adaptive, HpcF64)
+//! - [`OpType`]: Operation classification for routing decisions
+//! - [`HardwareTier`]: Hardware classification (Apple Silicon, NVIDIA tiers, AMD)
+//! - [`PrecisionProfile`]: Precision strategy per hardware tier
 //!
-//! let mode = PrecisionMode::default();
-//! if mode.should_renormalize(step) {
-//!     // Re-normalize Langevin particles for numerical stability
+//! ```rust,ignore
+//! use thrml_samplers::{RuntimePolicy, ComputeBackend, OpType};
+//!
+//! let policy = RuntimePolicy::detect();
+//! let backend = ComputeBackend::from_policy(&policy);
+//!
+//! // Check if precision-sensitive ops should use CPU
+//! if backend.use_cpu(OpType::IsingSampling, None) {
+//!     // Route to CPU f64 path
 //! }
 //! ```
 
@@ -71,4 +101,7 @@ pub use softmax::*;
 pub use spin_gibbs::*;
 
 // Re-export compute types from thrml-core for precision routing
-pub use thrml_core::compute::{ComputeBackend, HybridConfig, OpType, PrecisionMode};
+pub use thrml_core::compute::{
+    ComputeBackend, HardwareTier, HybridConfig, OpType, PrecisionMode, PrecisionProfile,
+    RuntimePolicy,
+};

@@ -20,6 +20,7 @@ thrml-observers = { path = "../thrml-observers" }
 thrml-kernels = { path = "../thrml-kernels", optional = true }
 burn = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }
+burn-cuda = { workspace = true, optional = true }
 indexmap = { workspace = true }
 
 [dev-dependencies]
@@ -30,9 +31,10 @@ rand = { workspace = true }
 
 # Accessed via burn re-exports or feature flags
 [package.metadata.cargo-machete]
-ignored = ["burn-wgpu"]
+ignored = ["burn-wgpu", "burn-cuda"]
 
 [features]
 default = ["gpu"]
 gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-observers/gpu"]
+cuda = ["gpu", "burn/cuda", "burn-cuda", "thrml-core/cuda", "thrml-samplers/cuda"]
 fused-kernels = ["thrml-kernels", "thrml-kernels/gpu"]

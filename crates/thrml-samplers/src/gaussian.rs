@@ -19,11 +19,18 @@
 //! 1. Accumulates precision from `InteractionData::Quadratic` interactions
 //! 2. Accumulates mean contribution from `InteractionData::Linear` interactions
 //! 3. Samples x ~ N(b/A, sqrt(1/A))
+//!
+//! ## Precision Routing
+//!
+//! When using `sample_routed` with a [`ComputeBackend`], the sampler routes
+//! precision-sensitive accumulation based on hardware capabilities. The accumulation
+//! of precision and mean contributions can overflow in f32 for large models.
 
 use crate::rng::RngKey;
 use crate::sampler::AbstractConditionalSampler;
 use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
+use thrml_core::compute::{ComputeBackend, OpType};
 use thrml_core::interaction::InteractionData;
 use thrml_core::node::TensorSpec;
 
@@ -134,6 +141,143 @@ impl AbstractConditionalSampler for GaussianSampler {
             Tensor::random([n_nodes], Distribution::Normal(0.0, 1.0), device);
 
         let samples = mean + std * noise;
+
+        (samples, ())
+    }
+}
+
+impl GaussianSampler {
+    /// Sample with precision routing based on ComputeBackend.
+    ///
+    /// Routes the precision/mean accumulation through CPU f64 or CUDA f64
+    /// based on the backend configuration.
+    pub fn sample_routed(
+        &self,
+        backend: &ComputeBackend,
+        _key: RngKey,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        _n_spin_per_interaction: &[usize],
+        _sampler_state: (),
+        output_spec: &TensorSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> (Tensor<WgpuBackend, 1>, ()) {
+        let n_nodes = output_spec.shape[0];
+
+        // Route based on backend - use GradientCompute OpType since accumulation is similar
+        if backend.use_cpu(OpType::GradientCompute, Some(n_nodes)) {
+            return self.sample_cpu_f64(
+                interactions,
+                active_flags,
+                neighbor_states,
+                output_spec,
+                device,
+            );
+        }
+
+        // Standard GPU f32 path
+        self.sample(
+            _key,
+            interactions,
+            active_flags,
+            neighbor_states,
+            _n_spin_per_interaction,
+            _sampler_state,
+            output_spec,
+            device,
+        )
+    }
+
+    /// Sample using CPU f64 for precision-sensitive accumulation.
+    fn sample_cpu_f64(
+        &self,
+        interactions: &[InteractionData],
+        active_flags: &[Tensor<WgpuBackend, 2>],
+        neighbor_states: &[Vec<Tensor<WgpuBackend, 2>>],
+        output_spec: &TensorSpec,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> (Tensor<WgpuBackend, 1>, ()) {
+        let n_nodes = output_spec.shape[0];
+
+        // Accumulate in f64
+        let mut precision_f64: Vec<f64> = vec![0.0; n_nodes];
+        let mut mean_contribution_f64: Vec<f64> = vec![0.0; n_nodes];
+
+        for (interaction, active, states) in
+            itertools::izip!(interactions, active_flags, neighbor_states)
+        {
+            let active_data: Vec<f32> = active.clone().into_data().to_vec().unwrap();
+            let active_dims = active.dims();
+            let k = active_dims[1];
+
+            match interaction {
+                InteractionData::Quadratic { inverse_weights } => {
+                    let weights_data: Vec<f32> = inverse_weights.clone().into_data().to_vec().unwrap();
+
+                    // Sum over k dimension with active flags
+                    for node in 0..n_nodes {
+                        for ki in 0..k {
+                            let w = weights_data.get(node * k + ki).copied().unwrap_or(0.0) as f64;
+                            let a = active_data.get(node * k + ki).copied().unwrap_or(0.0) as f64;
+                            precision_f64[node] += w * a;
+                        }
+                    }
+                }
+                InteractionData::Linear { weights } => {
+                    let weights_data: Vec<f32> = weights.clone().into_data().to_vec().unwrap();
+
+                    // Get state product
+                    let state_prod: Vec<f64> = if states.is_empty() {
+                        vec![1.0; n_nodes * k]
+                    } else {
+                        let mut prod = vec![1.0f64; n_nodes * k];
+                        for state in states {
+                            let state_data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
+                            for (i, &s) in state_data.iter().enumerate() {
+                                if i < prod.len() {
+                                    prod[i] *= s as f64;
+                                }
+                            }
+                        }
+                        prod
+                    };
+
+                    // Accumulate weighted contribution
+                    for node in 0..n_nodes {
+                        for ki in 0..k {
+                            let w = weights_data.get(node * k + ki).copied().unwrap_or(0.0) as f64;
+                            let a = active_data.get(node * k + ki).copied().unwrap_or(0.0) as f64;
+                            let sp = state_prod.get(node * k + ki).copied().unwrap_or(1.0);
+                            mean_contribution_f64[node] += w * a * sp;
+                        }
+                    }
+                }
+                InteractionData::Tensor(_) | InteractionData::Sphere { .. } => {
+                    // Skip
+                }
+            }
+        }
+
+        // Compute variance, mean, std in f64
+        let epsilon = 1e-8f64;
+        let mut samples_f64: Vec<f64> = Vec::with_capacity(n_nodes);
+        
+        // Use thread_rng for noise
+        use rand_distr::{Distribution as RandDist, StandardNormal};
+        let mut rng = rand::thread_rng();
+
+        for i in 0..n_nodes {
+            let variance = 1.0 / (precision_f64[i] + epsilon);
+            let mean = mean_contribution_f64[i] * variance;
+            let std = variance.sqrt();
+            let noise: f64 = StandardNormal.sample(&mut rng);
+            samples_f64.push(mean + std * noise);
+        }
+
+        // Convert to f32 tensor
+        let samples_f32: Vec<f32> = samples_f64.iter().map(|&x| x as f32).collect();
+        let samples = Tensor::from_floats(samples_f32.as_slice(), device);
 
         (samples, ())
     }

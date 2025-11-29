@@ -228,6 +228,7 @@ cargo run --release --example train_mnist
 - [Samplers API](docs/api/samplers.md) - Gibbs, Bernoulli, Gaussian, max-cut algorithms
 - [Models API](docs/api/models.md) - Ising, discrete EBMs, continuous factors
 - [Sphere API](docs/api/sphere.md) - Hyperspherical navigation (sphere branch)
+- [BLT Pipeline](docs/blt_sphere_pipeline.md) - BLT → thrml-sphere integration
 - [Architecture Guide](docs/architecture.md)
 - [Examples README](crates/thrml-examples/README.md)
 

@@ -1228,7 +1228,7 @@ mod tests {
         assert_eq!(policy.profile, PrecisionProfile::CpuFp64Strict);
         assert!(policy.use_gpu);
         assert!(policy.allow_mixed_precision); // GPU f32 + CPU f64 mixing
-        // GPU uses f32, CPU f64 for precision ops
+                                               // GPU uses f32, CPU f64 for precision ops
         assert_eq!(policy.real_dtype, DType::F32);
     }
 

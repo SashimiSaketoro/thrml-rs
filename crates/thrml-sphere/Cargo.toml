@@ -1,7 +1,7 @@
 [package]
 name = "thrml-sphere"
-description = "Sphere optimization for placing embeddings on a hypersphere using Langevin dynamics"
-version.workspace = true
+description = "Hyperspherical navigation with ROOTS indexing and multi-cone EBM (experimental)"
+version = "0.0.1"  # Experimental - API will change
 edition.workspace = true
 authors.workspace = true
 license.workspace = true

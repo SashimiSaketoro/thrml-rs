@@ -1,12 +1,13 @@
 # thrml-sphere
 
-> ⚠️ **Experimental**: This crate is maintained on the `sphere` branch and is not part of the main thrml-rs release.
+> ⚠️ **Experimental (v0.0.x)**: API will change without notice. This crate is maintained on the `sphere` branch and is not published to crates.io.
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Branch](https://img.shields.io/badge/branch-sphere-green.svg)](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere)
+[![Version](https://img.shields.io/badge/version-0.0.1-red.svg)](Cargo.toml)
 
-Hyperspherical embedding optimization and ROOTS indexing for the THRML framework.
+Hyperspherical navigation with ROOTS indexing and multi-cone EBM for the THRML framework.
 
 ## Installation
 

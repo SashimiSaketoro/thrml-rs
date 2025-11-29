@@ -1216,4 +1216,125 @@ mod tests {
         assert!(config.enable_overlap);
         assert!(config.cpu_threads > 0);
     }
+
+    // =========================================================================
+    // RuntimePolicy tests - lock in the tier → profile contract
+    // =========================================================================
+
+    #[test]
+    fn test_runtime_policy_apple_silicon() {
+        let policy = RuntimePolicy::apple_silicon();
+        assert_eq!(policy.tier, HardwareTier::AppleSilicon);
+        assert_eq!(policy.profile, PrecisionProfile::CpuFp64Strict);
+        assert!(policy.use_gpu);
+        assert!(policy.allow_mixed_precision); // GPU f32 + CPU f64 mixing
+        // GPU uses f32, CPU f64 for precision ops
+        assert_eq!(policy.real_dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_runtime_policy_nvidia_consumer() {
+        let policy = RuntimePolicy::nvidia_consumer();
+        assert_eq!(policy.tier, HardwareTier::NvidiaConsumer);
+        assert_eq!(policy.profile, PrecisionProfile::GpuMixed);
+        assert!(policy.use_gpu);
+        assert!(policy.allow_mixed_precision);
+    }
+
+    #[test]
+    fn test_runtime_policy_nvidia_hopper() {
+        let policy = RuntimePolicy::nvidia_hopper();
+        assert_eq!(policy.tier, HardwareTier::NvidiaHopper);
+        assert_eq!(policy.profile, PrecisionProfile::GpuHpcFp64);
+        assert!(policy.use_gpu);
+        // HPC can do f64 on GPU
+        assert_eq!(policy.real_dtype, DType::F64);
+        assert!(policy.is_hpc_tier());
+    }
+
+    #[test]
+    fn test_runtime_policy_nvidia_blackwell() {
+        let policy = RuntimePolicy::nvidia_blackwell();
+        assert_eq!(policy.tier, HardwareTier::NvidiaBlackwell);
+        assert_eq!(policy.profile, PrecisionProfile::GpuHpcFp64);
+        assert!(policy.is_hpc_tier());
+    }
+
+    #[test]
+    fn test_runtime_policy_nvidia_spark() {
+        let policy = RuntimePolicy::nvidia_spark();
+        assert_eq!(policy.tier, HardwareTier::NvidiaSpark);
+        assert_eq!(policy.profile, PrecisionProfile::GpuHpcFp64);
+        assert!(policy.is_hpc_tier());
+        // Spark has unified memory like Apple Silicon but with strong f64
+        assert_eq!(policy.real_dtype, DType::F64);
+    }
+
+    #[test]
+    fn test_runtime_policy_cpu_only() {
+        let policy = RuntimePolicy::cpu_only();
+        assert_eq!(policy.tier, HardwareTier::CpuOnly);
+        assert_eq!(policy.profile, PrecisionProfile::CpuFp64Strict);
+        assert!(!policy.use_gpu);
+        assert_eq!(policy.real_dtype, DType::F64);
+    }
+
+    #[test]
+    fn test_runtime_policy_for_tier_roundtrip() {
+        // Verify for_tier produces the same policy as direct constructors
+        let tiers = [
+            HardwareTier::AppleSilicon,
+            HardwareTier::NvidiaConsumer,
+            HardwareTier::NvidiaHopper,
+            HardwareTier::NvidiaBlackwell,
+            HardwareTier::NvidiaSpark,
+            HardwareTier::CpuOnly,
+        ];
+
+        for tier in tiers {
+            let policy = RuntimePolicy::for_tier(tier);
+            assert_eq!(policy.tier, tier);
+        }
+    }
+
+    #[test]
+    fn test_compute_backend_from_policy() {
+        // CpuFp64Strict → UnifiedHybrid with CPU ops for precision
+        let policy = RuntimePolicy::apple_silicon();
+        let backend = ComputeBackend::from_policy(&policy);
+        assert!(backend.use_cpu(OpType::IsingSampling, None));
+        assert!(!backend.use_cpu(OpType::Similarity, None));
+
+        // GpuHpcFp64 with CUDA → can do precision ops on GPU
+        let policy = RuntimePolicy::nvidia_hopper();
+        let backend = ComputeBackend::from_policy(&policy);
+        // Without CUDA feature, HPC still routes some ops to CPU
+        #[cfg(not(feature = "cuda"))]
+        {
+            assert!(backend.use_cpu(OpType::IsingSampling, None));
+        }
+    }
+
+    #[test]
+    fn test_precision_profile_mapping() {
+        // Verify precision_dtype returns expected values
+        let apple = RuntimePolicy::apple_silicon();
+        assert_eq!(apple.precision_dtype(), DType::F64); // CpuFp64Strict → F64
+
+        let consumer = RuntimePolicy::nvidia_consumer();
+        assert_eq!(consumer.precision_dtype(), DType::F32); // GpuMixed → F32
+
+        let hpc = RuntimePolicy::nvidia_hopper();
+        assert_eq!(hpc.precision_dtype(), DType::F64); // GpuHpcFp64 → F64
+    }
+
+    #[test]
+    fn test_platform_fallback() {
+        // Platform fallback should be deterministic
+        let fallback = RuntimePolicy::platform_fallback_tier();
+        #[cfg(target_os = "macos")]
+        assert_eq!(fallback, HardwareTier::AppleSilicon);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(fallback, HardwareTier::Unknown);
+    }
 }

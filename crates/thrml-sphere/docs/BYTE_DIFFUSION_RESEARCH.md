@@ -20,6 +20,8 @@ x_{t-1} = x_t - dt * ∇E(x_t) + sqrt(2T*dt) * noise
 ```
 The energy gradient `∇E` serves as the **score function** in score-matching literature.
 
+**In plain terms:** Each step adds a little noise plus a tiny step down the energy gradient. This is exactly how continuous-time diffusion/denoising score models work. So if we learn an energy E(x) over byte representations, its gradient ∇E(x) gives us the score needed to run the reverse (denoising) process.
+
 ### Implication
 If we learn an energy function E over byte representations, we automatically get:
 1. A way to compress (diffuse forward = add noise)
@@ -86,7 +88,7 @@ Compression ratio: 3000:1
 ```
 L_tree = ||compress(bytes_i) - compress(bytes_j)||^2 * (1 - tree_distance(i,j))
 ```
-Where `tree_distance` is normalized path distance in hypergraph.
+Where `tree_distance(i,j) ∈ [0,1]` is the normalized path distance in the hypergraph. Siblings (distance ≈ 0) are heavily penalized if far apart in compressed space, while distant nodes (distance ≈ 1) contribute little to the loss.
 
 ### 3. Connection to VQ-VAE / Discrete Diffusion
 

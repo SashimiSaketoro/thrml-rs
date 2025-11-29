@@ -7,7 +7,7 @@
 [![Branch](https://img.shields.io/badge/branch-sphere-green.svg)](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere)
 [![Version](https://img.shields.io/badge/version-0.0.1-red.svg)](Cargo.toml)
 
-Hyperspherical navigation with ROOTS indexing and multi-cone EBM for the THRML framework.
+Hyperspherical navigation for high-dimensional embeddings with ROOTS indexing and multi-cone EBM for the THRML framework.
 
 ## Installation
 
@@ -54,8 +54,8 @@ let ebm = load_from_safetensors(&path, config, &device)?;
 let key = RngKey::new(42);
 let coords = ebm.optimize(key, &device);
 
-// Access results
-let cartesian = coords.to_cartesian(); // [N, 3]
+// Access results (spherical coords: r, θ, φ)
+let cartesian = coords.to_cartesian(); // [N, 3] - for visualization; real models use D≫3
 ```
 
 ### ROOTS Index
@@ -72,9 +72,10 @@ let (sphere_ebm, patch_bytes) = load_blt_safetensors(
 )?;
 
 // Build ROOTS with substring coupling
+// Coupling weights: 70% embedding similarity, 30% byte-level substring overlap
 let config = RootsConfig::default()
     .with_partitions(256)
-    .with_default_substring_coupling();  // 70% embedding, 30% substring
+    .with_default_substring_coupling();
 
 let roots = RootsIndex::from_sphere_ebm_with_bytes(
     &sphere_ebm,
@@ -133,8 +134,11 @@ The ROOTS (inner-shell index) provides 3000:1 compression over full embeddings:
 ┌─────────────────────────────────────────┐
 │  Stage 3: CLASSIFIER EBM                │
 │  Learned query → partition routing      │
+│  (NavigatorEBM / MultiConeNavigator)    │
 └─────────────────────────────────────────┘
 ```
+
+Stage 3 is implemented by `NavigatorEBM` (single cone) and `MultiConeNavigator` (multi-cone search with budget allocation). Index size assumes N=1M embeddings, D=768, K=256 partitions.
 
 ### Hybrid Compute (Apple Silicon)
 
@@ -193,13 +197,15 @@ This crate integrates with `blt-burn` for processing BLT model output:
 
 ## Performance
 
-Memory footprint for ROOTS index:
+Memory footprint for ROOTS index (assuming N=1M embeddings):
 
 | Partitions | Embedding Dim | Index Size | Compression |
 |------------|---------------|------------|-------------|
 | 256 | 768 | ~1 MB | 3000:1 |
 | 1024 | 768 | ~4 MB | 750:1 |
 | 4096 | 768 | ~16 MB | 190:1 |
+
+Full sphere storage (N=1M × D=768 × 4 bytes) ≈ 3 GB. ROOTS reduces this to ~1 MB by storing only partition centroids + statistics.
 
 ## Related Crates
 

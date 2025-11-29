@@ -166,6 +166,34 @@ let hpc = RuntimePolicy::nvidia_hopper();  // H100/H200
 let spark = RuntimePolicy::nvidia_spark(); // DGX Spark / GB10
 ```
 
+## `thrml-sphere` (this branch)
+
+| Crate | Description |
+|-------|-------------|
+| [`thrml-sphere`](crates/thrml-sphere/) | Hyperspherical navigation, ROOTS indexing, multi-cone EBM |
+
+**What it does:**
+- **SphereEBM**: Langevin dynamics to place embeddings on a hypersphere
+- **NavigatorEBM**: EBM with learnable weights for similarity, radial alignment, path length
+- **MultiConeNavigator**: Spawns cones from ROOTS peaks, allocates budget per cone
+- **RootsIndex**: Compresses inner shells ~3000:1 for coarse routing
+
+Training: contrastive divergence with hard negatives, PCD, curriculum scheduling.
+
+**BLT Integration:** Works with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn) — BLT provides embeddings, `thrml-sphere` provides the navigator.
+
+```rust
+use thrml_sphere::{RuntimeConfig, BudgetConfig, SphereConfig, RootsConfig};
+
+let runtime = RuntimeConfig::auto();
+println!("Hardware: {:?}, Budget: {:.1} GB", runtime.policy.tier, runtime.budget_gb());
+
+let roots_cfg = RootsConfig::default().with_partitions(64);
+let budget = runtime.budget.with_max_cones(8);
+```
+
+For full API, see [docs/api/sphere.md](docs/api/sphere.md).
+
 ## Examples
 
 See the [`examples/`](crates/thrml-examples/examples/) directory:
@@ -237,79 +265,3 @@ at your option.
 This project is inspired by [Extropic's THRML](https://github.com/extropic-ai/thrml) library. 
 THRML-RS is an independent Rust implementation providing the same functionality with native 
 GPU acceleration.
-
-## Experimental: `thrml-sphere` (sphere branch)
-
-| Crate | Description |
-|-------|-------------|
-| [`thrml-sphere`](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) | Hyperspherical navigation, ROOTS indexing, multi-cone EBM |
-
-### What it does
-
-- **SphereEBM**: Langevin dynamics to place embeddings on a hypersphere
-- **NavigatorEBM**: EBM with learnable weights for similarity, radial alignment, path length
-- **MultiConeNavigator**: Spawns cones from ROOTS peaks, allocates budget per cone
-- **RootsIndex**: Compresses inner shells ~3000:1 for coarse routing
-
-Training: contrastive divergence with hard negatives, PCD, curriculum scheduling.
-
-### Example
-
-```rust
-use thrml_core::backend::init_gpu_device;
-use thrml_samplers::RngKey;
-use thrml_sphere::{
-    RuntimeConfig, BudgetConfig, SphereConfig,
-    MultiConeNavigator, RootsConfig,
-};
-
-fn main() {
-    // Auto-detect hardware (Apple Silicon, gaming GPU, HPC, etc.)
-    let runtime = RuntimeConfig::auto();
-    let device = init_gpu_device();
-
-    println!("Hardware: {:?}", runtime.policy.tier);
-    println!("Memory budget: {:.1} GB", runtime.budget_gb());
-
-    // Configure sphere + navigator
-    let sphere_cfg = SphereConfig::default();
-    let roots_cfg = RootsConfig::default()
-        .with_partitions(64)
-        .with_default_substring_coupling();
-
-    let budget = runtime.budget
-        .with_max_cones(8)
-        .with_peak_threshold(0.15);
-
-    // Initialize navigator (requires embeddings from BLT or other source)
-    // let navigator = MultiConeNavigator::from_sphere_ebm_with_bytes(
-    //     &sphere_ebm, &bytes, roots_cfg, budget, RngKey::new(42), &device,
-    // );
-
-    // Navigate - cones spawn automatically from ROOTS peaks
-    // let result = navigator.navigate_multi_cone(query, 50.0, 10, RngKey::new(123), &device);
-}
-```
-
-Uses the same `RuntimeConfig` / `ComputeBackend` as core crates.
-
-### BLT Integration
-
-Works with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn): BLT provides embeddings, `thrml-sphere` provides the navigator. Any encoder that outputs compatible tensors will work.
-
-### Using the sphere branch
-
-```bash
-# Clone with sphere branch
-git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
-cd thrml-rs
-cargo build --release --features gpu
-
-# Run sphere-specific tests
-cargo test -p thrml-sphere --features gpu
-```
-
-For API details, see:
-- [Sphere API Reference](docs/api/sphere.md) - Full `thrml-sphere` documentation
-- [Core API Reference](docs/api/core.md) - Includes RuntimePolicy, metrics, text similarity
-- [Samplers API Reference](docs/api/samplers.md) - Includes max-cut algorithms

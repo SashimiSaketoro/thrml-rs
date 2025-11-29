@@ -42,6 +42,158 @@ pub use thrml_samplers::maxcut::{cut_value, maxcut_gibbs, maxcut_multistart};
 
 ---
 
+## The Math (Start Here)
+
+This section shows the actual energy functions and algorithms with small examples before diving into the API.
+
+### Notation
+
+A vector **x** = (x₁, x₂, ..., x_d) is just d numbers (sliders). Key operations:
+
+| Symbol | Meaning | Code |
+|--------|---------|------|
+| ‖**x**‖ | Length: √(x₁² + x₂² + ... + x_d²) | `x.powf_scalar(2.0).sum().sqrt()` |
+| **x** · **y** | Dot product: x₁y₁ + x₂y₂ + ... + x_dy_d | `x.clone().mul(y).sum()` |
+| cos(θ) | Similarity: (**x** · **y**) / (‖**x**‖ ‖**y**‖) | `cosine_similarity(x, y)` |
+| S^(d-1) | Unit sphere: all **x** with ‖**x**‖ = 1 | Normalized embeddings |
+
+### SphereEBM Energy (3D Example)
+
+In 3D, embeddings live on the unit sphere S². The energy penalizes:
+- Being off the sphere (‖**x**‖ ≠ 1)
+- Being far from similar points
+
+```
+E_sphere(x) = λ_norm · (‖x‖² - 1)²           # Stay on sphere
+            + Σⱼ wⱼ · (1 - cos(θ_xⱼ))        # Attract similar points
+            + λ_repel · Σⱼ max(0, cos_thresh - cos(θ_xⱼ))  # Repel dissimilar
+```
+
+**Toy example (d=3):**
+
+```
+Point A = (1, 0, 0)      # On sphere, ‖A‖ = 1
+Point B = (0.6, 0.8, 0)  # On sphere, ‖B‖ = 1
+Point C = (1.5, 0, 0)    # OFF sphere, ‖C‖ = 1.5
+
+cos(A, B) = 0.6          # 53° apart
+cos(A, C) = 1.0          # Same direction, but C is outside
+
+E_norm(A) = 0            # Already on sphere
+E_norm(C) = (1.5² - 1)² = 0.5625  # Penalty for being off sphere
+```
+
+### Langevin Update Rule
+
+To minimize energy while exploring, we use Langevin dynamics:
+
+```
+x_{t+1} = x_t - η · ∇E(x_t) + √(2ηT) · ξ
+          ────────────────   ────────────
+          gradient step      Gaussian noise
+
+# Then project back to sphere:
+x_{t+1} = x_{t+1} / ‖x_{t+1}‖
+```
+
+**Parameters:**
+- η = step size (0.01 typical)
+- T = temperature (higher = more exploration)
+- ξ ~ N(0, I) = random noise
+
+**Why this works:** Gradient descent finds minima, noise lets you escape bad ones. On a sphere, we project after each step to stay on the manifold.
+
+### NavigatorEBM Energy (Worked Example)
+
+Navigation energy ranks candidates by combining three interpretable terms:
+
+```
+E_nav(q, x) = λ_sem · (1 - cos(q, x))     # Lower = more similar
+           + λ_rad · |r_x - r_target|     # Radial alignment
+           + λ_path · path_length(q → x)  # Cost to get there
+```
+
+**Toy example:** Query q, three candidates:
+
+| Candidate | cos(q, x) | radius | path_len | E_nav (λ=1,1,1) |
+|-----------|-----------|--------|----------|-----------------|
+| x₁        | 0.9       | 1.0    | 2        | 0.1 + 0.0 + 2 = **2.1** |
+| x₂        | 0.7       | 0.8    | 1        | 0.3 + 0.2 + 1 = **1.5** ← winner |
+| x₃        | 0.95      | 1.5    | 5        | 0.05 + 0.5 + 5 = **5.55** |
+
+x₂ wins despite lower similarity because it's cheaper to reach.
+
+**Training:** Learn λ weights via contrastive divergence to match retrieval ground truth.
+
+### MultiConeNavigator Algorithm
+
+```
+1. Encode query q
+2. Compute ROOTS activations: act[k] = softmax(-dist(q, centroid[k]))
+3. Find peaks: P = {k : act[k] > threshold ∧ local_max(k)}
+4. Allocate budget per cone proportional to act[k]
+5. For each cone k in P:
+     - Define aperture from ROOTS partition
+     - Run NavigatorEBM-guided sampling within cone
+     - Collect top candidates
+6. Merge candidates, deduplicate, rerank by E_nav
+```
+
+**Diagram (2D slice):**
+
+```
+         cone 2 (30% budget)
+              /
+             /
+    ─────●──────────────  ← query on sphere
+            \
+             \
+         cone 1 (40% budget)
+              \
+               cone 3 (30% budget)
+```
+
+### RootsIndex: Shell Compression (2D Example)
+
+In 2D (circle), with 4 angular bins × 2 radial shells:
+
+```
+Outer shell (r > 0.8): 90% of points live here (high-d concentration)
+Inner shell (r < 0.8): 10% of points, compressed ~10:1
+
+     Bin 0    Bin 1
+   ┌───────┬───────┐
+   │ 2500  │ 2400  │  ← outer shell (4 bins × ~2500 each)
+   ├───────┼───────┤
+   │  50   │  48   │  ← inner shell (4 bins × ~50 each, ~50:1 compression)
+   ├───────┼───────┤
+   │ 2600  │ 2450  │
+   └───────┴───────┘
+     Bin 2    Bin 3
+```
+
+In high-D (d=768), this becomes ~3000:1 compression for inner shells because volume concentrates even more extremely near the surface.
+
+### Precision Requirements
+
+| Operation | Preferred Precision | Why |
+|-----------|---------------------|-----|
+| Langevin noise | FP64 | Accumulated error compounds |
+| Energy gradient | FP64 | Numerical stability near saddles |
+| Similarity matrix | FP32 OK | Bulk parallel, no accumulation |
+| ROOTS routing | FP32 OK | Coarse, robust to noise |
+| Path length | FP32 OK | Integer-like, discrete hops |
+
+**Per hardware:**
+
+| Hardware | Strategy |
+|----------|----------|
+| Apple Silicon | GPU FP32 for similarity/routing, CPU FP64 for Langevin/gradients |
+| RTX 5090 | Same as Apple (weak FP64) |
+| H100/B200/Spark | Full FP64 on GPU viable |
+
+---
+
 ## Sphere Optimization
 
 ### `SphereEBM`

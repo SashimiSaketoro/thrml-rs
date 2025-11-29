@@ -175,4 +175,10 @@ GPU acceleration.
 
 ## Experimental
 
-For hyperspherical navigation (`thrml-sphere`) and expanded hardware-aware runtime profiles, see the [`sphere` branch](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere).
+The [`sphere` branch](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere) contains:
+
+- **`thrml-sphere`** (v0.0.x): Hyperspherical navigation with ROOTS indexing and multi-cone EBM
+- Expanded hardware-aware runtime profiles (DGX Spark, Blackwell, etc.)
+- BLT integration for byte-latent embeddings
+
+This is not published to crates.io and the API may change without notice; it's intended for experiments with BLT/ROOTS-style embedding navigation.

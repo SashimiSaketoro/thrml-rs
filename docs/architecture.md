@@ -182,6 +182,33 @@ ensure_backend();
 let device = init_gpu_device();
 ```
 
+## Runtime Abstraction
+
+The library includes a hardware-aware runtime layer that routes operations based on precision requirements:
+
+| Hardware | FP64 Support | Strategy |
+|----------|--------------|----------|
+| Apple Silicon | CPU only | GPU for throughput, CPU f64 for precision-sensitive ops |
+| Consumer GPU (RTX, RDNA) | Weak | GPU f32, CPU f64 fallback for corrections |
+| HPC GPU (H100, B200) | Native | Full f64 on GPU |
+| CPU Only | Native | All on CPU |
+
+```rust
+use thrml_core::compute::{ComputeBackend, RuntimePolicy, OpType};
+
+let policy = RuntimePolicy::detect();
+let backend = ComputeBackend::from_policy(&policy);
+
+// Route precision-sensitive ops
+if backend.use_cpu(OpType::IsingSampling, None) {
+    // CPU f64 path
+} else {
+    // GPU path
+}
+```
+
+The `sphere` branch expands this with more hardware tiers and explicit support for DGX Spark / GB10.
+
 ## Tensor Operations
 
 Key operations used throughout:

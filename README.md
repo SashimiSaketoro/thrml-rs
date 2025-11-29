@@ -21,6 +21,7 @@ ported from [Extropic's THRML](https://github.com/extropic-ai/thrml) library, wi
 - **Deterministic RNG**: Reproducible sampling with ChaCha8-based key splitting
 - **Moment Estimation**: Built-in observers for computing statistics
 - **Training Support**: Contrastive divergence, KL gradient estimation
+- **Runtime Abstraction**: Hardware-aware CPU/GPU routing (see [Architecture Guide](docs/architecture.md))
 
 ## Quick Start
 
@@ -104,53 +105,6 @@ cargo build --release --features cpu
 - **WGPU backend**: GPU with Metal (macOS) or Vulkan (Linux/Windows) support
 - **CUDA backend**: NVIDIA GPU with CUDA toolkit installed
 
-## Runtime & Hardware Profiles
-
-`thrml-rs` is designed to run from laptops to DGX-class servers. The core crates share a
-common runtime abstraction:
-
-- **`ComputeBackend`**: Selects CPU / GPU / hybrid execution
-- **`PrecisionMode`**: Chooses between `GpuFast`, `CpuPrecise`, or `Adaptive` routing
-- **`OpType`**: Tags operations (Ising sampling, distance, etc.) for precision-aware routing
-
-### Hardware Tiers
-
-| Tier | Examples | FP64 | Default Profile |
-|------|----------|------|-----------------|
-| **Apple Silicon** | M1–M4 Pro/Max/Ultra | CPU only | `CpuFp64Strict` - GPU for throughput, CPU for precision |
-| **Consumer GPU** | RTX 3080–5090, RDNA3/4 | Weak | `GpuMixed` - GPU FP32, CPU f64 for corrections |
-| **HPC GPU** | H100, H200, B200, DGX Spark | Native | `GpuHpcFp64` - Full f64 on GPU |
-| **CPU Only** | Servers without GPU | Native | `CpuFp64Strict` - All operations on CPU |
-
-### Usage
-
-```rust
-use thrml_core::compute::{ComputeBackend, RuntimePolicy, OpType};
-
-// Auto-detect hardware and create appropriate backend
-let policy = RuntimePolicy::detect();
-let backend = ComputeBackend::from_policy(&policy);
-
-println!("Detected: {:?}", policy.tier);  // e.g., AppleSilicon
-println!("Profile: {:?}", policy.profile); // e.g., CpuFp64Strict
-
-// Precision-aware routing
-if backend.use_cpu(OpType::IsingSampling, None) {
-    // High-precision CPU f64 path (Apple Silicon, consumer GPU)
-} else {
-    // Fast GPU path (HPC GPUs with native f64)
-}
-```
-
-The default `ComputeBackend::default()` auto-detects your hardware. For explicit control:
-
-```rust
-// Force specific profiles
-let apple = RuntimePolicy::apple_silicon();
-let hpc = RuntimePolicy::nvidia_hopper();  // H100/H200
-let spark = RuntimePolicy::nvidia_spark(); // DGX Spark / GB10
-```
-
 ## Examples
 
 See the [`examples/`](crates/thrml-examples/examples/) directory:
@@ -219,31 +173,6 @@ This project is inspired by [Extropic's THRML](https://github.com/extropic-ai/th
 THRML-RS is an independent Rust implementation providing the same functionality with native 
 GPU acceleration.
 
-## Experimental: Hyperspherical Navigation (`sphere` branch)
+## Experimental
 
-The `sphere` branch contains an experimental crate for hyperspherical embedding optimization and multi-cone EBM navigation:
-
-| Crate | Description |
-|-------|-------------|
-| [`thrml-sphere`](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/crates/thrml-sphere) | Langevin dynamics sphere optimization, ROOTS indexing, multi-cone navigation |
-
-### Features (sphere branch)
-
-- **Sphere Optimization**: Water-filling Langevin dynamics for embedding placement
-- **ROOTS Index**: Compressed inner-shell index with 3000:1 compression
-- **Multi-Cone Navigation**: Budget-allocated parallel EBM navigation
-- **Advanced Training**: Hard negative mining, PCD, curriculum learning
-- **Substring Coupling**: Byte-level structure for code/text clustering
-
-### Using the sphere branch
-
-```bash
-# Clone with sphere branch
-git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
-
-# Or add as git dependency
-[dependencies]
-thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
-```
-
-See the [sphere branch documentation](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere/docs/api/sphere.md) for full API reference.
+For hyperspherical navigation (`thrml-sphere`) and expanded hardware-aware runtime profiles, see the [`sphere` branch](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere).

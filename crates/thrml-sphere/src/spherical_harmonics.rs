@@ -60,7 +60,7 @@ pub use thrml_core::compute::GpuF64Strategy;
 ///
 /// At large scale (N > 100k points), CPU is too slow even with rayon.
 /// Consumer GPUs (Apple M-series, RTX) only have fast f32, not f64.
-/// 
+///
 /// - `CpuFallback`: CPU f64, best precision, slow at scale
 /// - `GpuF32`: GPU f32, fastest, some precision loss
 /// - `DoubleTensor`: GPU with f32 pairs (~48-bit), good balance for consumer GPUs
@@ -248,8 +248,8 @@ pub fn associated_legendre_normalized(l: usize, m: i32, x: f64) -> f64 {
 
     // Recurrence for l > m+1
     for n in (m_abs + 2)..=l {
-        let tmp =
-            ((2 * n - 1) as f64 * x).mul_add(pmmp1, -((n + m_abs - 1) as f64 * pmm)) / (n - m_abs) as f64;
+        let tmp = ((2 * n - 1) as f64 * x).mul_add(pmmp1, -((n + m_abs - 1) as f64 * pmm))
+            / (n - m_abs) as f64;
         pmm = pmmp1;
         pmmp1 = tmp;
     }

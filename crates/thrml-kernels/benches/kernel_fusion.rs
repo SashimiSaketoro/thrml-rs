@@ -149,7 +149,7 @@ fn benchmark_batch_gather(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("reference", size), size, |b, &size| {
             let weights: Tensor<WgpuBackend, 3> =
                 Tensor::random([size, k, dim], Distribution::Normal(0.0, 1.0), &device);
-            
+
             // Create random indices within bounds - create float then convert
             let k_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
                 [size, 1],
@@ -173,7 +173,7 @@ fn benchmark_batch_gather(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("fused", size), size, |b, &size| {
             let weights: Tensor<WgpuBackend, 3> =
                 Tensor::random([size, k, dim], Distribution::Normal(0.0, 1.0), &device);
-            
+
             let k_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
                 [size, 1],
                 Distribution::Uniform(0.0, (k - 1) as f64),

@@ -282,11 +282,8 @@ impl SpinGibbsConditional {
                         [n_nodes, n_interactions, weight_dim],
                         &cuda_device,
                     );
-                    let active_cuda = cuda_tensor_2d(
-                        &active_f64,
-                        [n_nodes, n_interactions],
-                        &cuda_device,
-                    );
+                    let active_cuda =
+                        cuda_tensor_2d(&active_f64, [n_nodes, n_interactions], &cuda_device);
 
                     // Convert spin states to CUDA f64
                     let states_spin_cuda: Vec<BurnTensor<CudaBackend, 2>> = states
@@ -299,7 +296,8 @@ impl SpinGibbsConditional {
                         })
                         .collect();
 
-                    #[allow(clippy::needless_collect)] // Vec used for is_empty() and potential iteration
+                    #[allow(clippy::needless_collect)]
+                    // Vec used for is_empty() and potential iteration
                     let states_cat_cuda: Vec<BurnTensor<CudaBackend, 2>> = states
                         .iter()
                         .skip(n_spin)
@@ -338,36 +336,24 @@ impl SpinGibbsConditional {
                     let weights_f64: Vec<f64> = weights_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let weights_cuda = cuda_tensor_2d(
-                        &weights_f64,
-                        [n_nodes, n_interactions],
-                        &cuda_device,
-                    );
-                    let active_cuda = cuda_tensor_2d(
-                        &active_f64,
-                        [n_nodes, n_interactions],
-                        &cuda_device,
-                    );
+                    let weights_cuda =
+                        cuda_tensor_2d(&weights_f64, [n_nodes, n_interactions], &cuda_device);
+                    let active_cuda =
+                        cuda_tensor_2d(&active_f64, [n_nodes, n_interactions], &cuda_device);
 
                     let state_prod_cuda = if states.is_empty() {
                         BurnTensor::<CudaBackend, 2>::ones([n_nodes, n_interactions], &cuda_device)
                     } else {
                         let first_data: Vec<f32> = states[0].clone().into_data().to_vec().unwrap();
                         let first_f64: Vec<f64> = first_data.iter().map(|&x| x as f64).collect();
-                        let mut prod = cuda_tensor_2d(
-                            &first_f64,
-                            [n_nodes, n_interactions],
-                            &cuda_device,
-                        );
+                        let mut prod =
+                            cuda_tensor_2d(&first_f64, [n_nodes, n_interactions], &cuda_device);
 
                         for s in states.iter().skip(1) {
                             let s_data: Vec<f32> = s.clone().into_data().to_vec().unwrap();
                             let s_f64: Vec<f64> = s_data.iter().map(|&x| x as f64).collect();
-                            let s_cuda = cuda_tensor_2d(
-                                &s_f64,
-                                [n_nodes, n_interactions],
-                                &cuda_device,
-                            );
+                            let s_cuda =
+                                cuda_tensor_2d(&s_f64, [n_nodes, n_interactions], &cuda_device);
                             prod = prod * s_cuda;
                         }
                         prod

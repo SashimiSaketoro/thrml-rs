@@ -177,9 +177,18 @@ mod tests {
     #[test]
     fn test_scale_profile_from_str() {
         assert_eq!("dev".parse::<ScaleProfile>().unwrap(), ScaleProfile::Dev);
-        assert_eq!("MEDIUM".parse::<ScaleProfile>().unwrap(), ScaleProfile::Medium);
-        assert_eq!("large".parse::<ScaleProfile>().unwrap(), ScaleProfile::Large);
-        assert_eq!("planetary".parse::<ScaleProfile>().unwrap(), ScaleProfile::Planetary);
+        assert_eq!(
+            "MEDIUM".parse::<ScaleProfile>().unwrap(),
+            ScaleProfile::Medium
+        );
+        assert_eq!(
+            "large".parse::<ScaleProfile>().unwrap(),
+            ScaleProfile::Large
+        );
+        assert_eq!(
+            "planetary".parse::<ScaleProfile>().unwrap(),
+            ScaleProfile::Planetary
+        );
         assert!("unknown".parse::<ScaleProfile>().is_err());
     }
 

@@ -61,19 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Random biases for each node
     let biases_data: Vec<f32> = (0..nodes.len())
-        .map(|i| {
-            
-            (i as f32 * 0.1).sin() * 0.5
-        })
+        .map(|i| (i as f32 * 0.1).sin() * 0.5)
         .collect();
     let biases: Tensor<WgpuBackend, 1> = Tensor::from_data(biases_data.as_slice(), &device);
 
     // Random weights for each edge
     let weights_data: Vec<f32> = (0..edges.len())
-        .map(|i| {
-            
-            (i as f32 * 0.2).cos() * 0.3
-        })
+        .map(|i| (i as f32 * 0.2).cos() * 0.3)
         .collect();
     let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(weights_data.as_slice(), &device);
 

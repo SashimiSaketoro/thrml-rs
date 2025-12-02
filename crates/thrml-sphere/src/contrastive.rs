@@ -340,16 +340,16 @@ impl HardNegativeMiner {
             let query_data: Vec<f32> = query.clone().into_data().to_vec().expect("query to vec");
             let emb_data: Vec<f32> = embeddings.clone().into_data().to_vec().expect("emb to vec");
             let [n, d] = embeddings.dims();
-            
+
             let device = thrml_core::backend::init_gpu_device();
-            let query_flat: Tensor<CubeWgpuBackend, 1> = 
+            let query_flat: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(query_data.as_slice(), &device);
-            let emb_flat: Tensor<CubeWgpuBackend, 1> = 
+            let emb_flat: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(emb_data.as_slice(), &device);
             let emb_cube: Tensor<CubeWgpuBackend, 2> = emb_flat.reshape([n, d]);
-            
+
             let sims_cube = cosine_similarity_fused(query_flat, emb_cube);
-            
+
             // Convert back to WgpuBackend
             let sims_data: Vec<f32> = sims_cube.into_data().to_vec().expect("sims to vec");
             let wgpu_device = query.device();
@@ -610,11 +610,7 @@ impl PersistentParticleBuffer {
             }
         };
 
-        let particle_data: Vec<f32> = particles
-            
-            .into_data()
-            .to_vec()
-            .expect("particles to vec");
+        let particle_data: Vec<f32> = particles.into_data().to_vec().expect("particles to vec");
 
         // Sample indices
         let mut sampled_data = Vec::with_capacity(batch_size * self.dim);

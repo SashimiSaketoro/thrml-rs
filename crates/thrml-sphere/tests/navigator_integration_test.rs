@@ -254,15 +254,9 @@ fn test_hypergraph_spring_energy_affects_navigation() {
     // Navigator 2: Strong graph weight
     let hypergraph_ebm = HypergraphEBM::from_sidecar(&sidecar, 0.1, 0.3, &device);
     let weights_with_graph = NavigationWeights::default().with_graph(1.0);
-    let navigator_with_graph = NavigatorEBM::new(
-        embeddings,
-        prominence,
-        None,
-        config,
-        &device,
-    )
-    .with_hypergraph(hypergraph_ebm)
-    .with_weights(weights_with_graph);
+    let navigator_with_graph = NavigatorEBM::new(embeddings, prominence, None, config, &device)
+        .with_hypergraph(hypergraph_ebm)
+        .with_weights(weights_with_graph);
 
     // Same query
     let query: Tensor<WgpuBackend, 1> =
@@ -307,14 +301,8 @@ fn test_navigation_with_entropy_weighting() {
         .with_semantic(1.0)
         .with_entropy(0.5); // Prefer low-entropy targets
 
-    let navigator = NavigatorEBM::new(
-        embeddings,
-        prominence,
-        Some(entropies),
-        config,
-        &device,
-    )
-    .with_weights(weights);
+    let navigator = NavigatorEBM::new(embeddings, prominence, Some(entropies), config, &device)
+        .with_weights(weights);
 
     let query: Tensor<WgpuBackend, 1> =
         Tensor::random([d], Distribution::Normal(0.0, 1.0), &device);

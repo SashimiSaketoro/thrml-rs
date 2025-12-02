@@ -831,13 +831,7 @@ impl NavigatorEBM {
         config: SphereConfig,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Self {
-        let sphere_ebm = SphereEBM::new(
-            embeddings,
-            prominence,
-            entropies.clone(),
-            config,
-            device,
-        );
+        let sphere_ebm = SphereEBM::new(embeddings, prominence, entropies.clone(), config, device);
         Self {
             sphere_ebm,
             hypergraph_ebm: None,
@@ -1203,22 +1197,30 @@ impl NavigatorEBM {
         #[cfg(feature = "fused-kernels")]
         {
             // Use fused cosine similarity kernel
-            let query_data: Vec<f32> = query_embedding.clone().into_data().to_vec().expect("query to vec");
-            let target_data: Vec<f32> = target_embeddings.into_data().to_vec().expect("target to vec");
+            let query_data: Vec<f32> = query_embedding
+                .clone()
+                .into_data()
+                .to_vec()
+                .expect("query to vec");
+            let target_data: Vec<f32> = target_embeddings
+                .into_data()
+                .to_vec()
+                .expect("target to vec");
             let d = self.sphere_ebm.embedding_dim();
-            
+
             let cube_device = thrml_core::backend::init_gpu_device();
-            let query_cube: Tensor<CubeWgpuBackend, 1> = 
+            let query_cube: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(query_data.as_slice(), &cube_device);
-            let target_flat: Tensor<CubeWgpuBackend, 1> = 
+            let target_flat: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(target_data.as_slice(), &cube_device);
             let target_cube: Tensor<CubeWgpuBackend, 2> = target_flat.reshape([n_targets, d]);
-            
+
             let sims_cube = cosine_similarity_fused(query_cube, target_cube);
-            
+
             // Convert back to WgpuBackend and negate for energy
             let sims_data: Vec<f32> = sims_cube.into_data().to_vec().expect("sims to vec");
-            let similarities: Tensor<WgpuBackend, 1> = Tensor::from_floats(sims_data.as_slice(), device);
+            let similarities: Tensor<WgpuBackend, 1> =
+                Tensor::from_floats(sims_data.as_slice(), device);
             similarities.neg()
         }
 
@@ -1380,7 +1382,9 @@ impl NavigatorEBM {
             let dphi = phi_data[i] - cone.center_phi;
 
             // Simple angular distance (could use geodesic for more accuracy)
-            let angular_dist = dtheta.mul_add(dtheta, dphi * dphi * theta_data[i].sin().powi(2)).sqrt();
+            let angular_dist = dtheta
+                .mul_add(dtheta, dphi * dphi * theta_data[i].sin().powi(2))
+                .sqrt();
 
             if angular_dist <= cone.aperture {
                 targets.push(i);
@@ -1925,7 +1929,11 @@ impl MultiConeNavigator {
     /// let roots = RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, key, &device);
     /// let multi = MultiConeNavigator::new(navigator, roots, BudgetConfig::dev());
     /// ```
-    pub const fn new(navigator: NavigatorEBM, roots: RootsIndex, budget_config: BudgetConfig) -> Self {
+    pub const fn new(
+        navigator: NavigatorEBM,
+        roots: RootsIndex,
+        budget_config: BudgetConfig,
+    ) -> Self {
         Self {
             navigator,
             roots,
@@ -2363,7 +2371,8 @@ impl MultiConeNavigator {
                 // Blend ROOTS initial with harmonic refinement
                 // Use harmonic confidence to weight the blend
                 let blend = result.confidence as f32;
-                let refined_theta = (1.0 - blend).mul_add(initial_theta, blend * result.theta as f32);
+                let refined_theta =
+                    (1.0 - blend).mul_add(initial_theta, blend * result.theta as f32);
                 let refined_phi = (1.0 - blend).mul_add(initial_phi, blend * result.phi as f32);
 
                 (
@@ -2557,8 +2566,7 @@ mod tests {
         let navigator = NavigatorEBM::new(embeddings.clone(), prominence, None, config, &device);
 
         // Query with first embedding
-        let query: Tensor<WgpuBackend, 1> =
-            embeddings.slice([0..1, 0..d]).reshape([d]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
         let targets = vec![0, 1, 2];
 
         let energy = navigator.semantic_energy(&query, &targets, &device);
@@ -3031,7 +3039,8 @@ mod tests {
             for j in 0..d {
                 // Create clusters
                 let cluster = i / 25; // 4 clusters
-                emb_data[i * d + j] = (cluster as f32).mul_add(0.5, ((i * j) as f32 * 0.01).sin() * 0.1);
+                emb_data[i * d + j] =
+                    (cluster as f32).mul_add(0.5, ((i * j) as f32 * 0.01).sin() * 0.1);
             }
         }
         let embeddings_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(emb_data.as_slice(), &device);

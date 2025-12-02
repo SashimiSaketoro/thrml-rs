@@ -636,11 +636,7 @@ impl TrainableNavigatorEBM {
 
         // Extract energies to CPU for loss computation
         // (Could also do loss on GPU, but keeping gradient computation on CPU for precision)
-        let energy_data: Vec<f32> = all_energies
-            
-            .into_data()
-            .to_vec()
-            .expect("energies to vec");
+        let energy_data: Vec<f32> = all_energies.into_data().to_vec().expect("energies to vec");
 
         let e_pos = energy_data[0];
         let neg_energies = &energy_data[1..];
@@ -3034,8 +3030,7 @@ mod tests {
         );
 
         // Create a training example
-        let query: Tensor<WgpuBackend, 1> =
-            embeddings.slice([0..1, 0..d]).reshape([d]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
         let example = TrainingExample {
             query,
             query_radius: 50.0,
@@ -3458,8 +3453,6 @@ mod tests {
 
     #[test]
     fn test_cpu_gpu_energy_equivalence() {
-        
-
         let device = init_gpu_device();
         let n = 10;
         let d = 8;
@@ -3482,8 +3475,7 @@ mod tests {
         );
 
         // Create query and target indices
-        let query: Tensor<WgpuBackend, 1> =
-            embeddings.slice([0..1, 0..d]).reshape([d]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
         let target_indices_vec: Vec<usize> = vec![1, 2, 3];
         let target_indices_tensor = NavigatorEBM::indices_to_tensor(&target_indices_vec, &device);
 

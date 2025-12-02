@@ -74,11 +74,7 @@ fn test_probabilistic_graph_ebm_e2e() {
     println!("✅ Edge probabilities: {:?}", probs_shape);
 
     // Sample statistics
-    let probs_data: Vec<f32> = edge_probs
-        
-        .into_data()
-        .to_vec()
-        .expect("probs to vec");
+    let probs_data: Vec<f32> = edge_probs.into_data().to_vec().expect("probs to vec");
     let mean_prob: f32 = probs_data.iter().sum::<f32>() / probs_data.len() as f32;
     let max_prob = probs_data.iter().cloned().fold(0.0f32, f32::max);
     let min_prob = probs_data.iter().cloned().fold(1.0f32, f32::min);

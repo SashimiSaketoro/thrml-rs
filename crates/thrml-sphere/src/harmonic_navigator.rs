@@ -221,10 +221,9 @@ impl SpringAmplitudeModulation {
             let proximity = (-angular_dist * angular_dist / (2.0 * decay * decay)).exp();
 
             // Get spring connectivity contribution
-            let connectivity = self
-                .adjacency
-                .get(&idx)
-                .map_or(0.0, |neighbors| neighbors.iter().map(|(_, w)| w).sum::<f64>());
+            let connectivity = self.adjacency.get(&idx).map_or(0.0, |neighbors| {
+                neighbors.iter().map(|(_, w)| w).sum::<f64>()
+            });
 
             // Optional point weight
             let point_weight = self
@@ -413,10 +412,14 @@ impl HarmonicNavigator {
             let (peak_theta, peak_phi, confidence) = self.basis.find_peak(&intensity);
 
             // Update with momentum
-            let new_theta =
-                self.config.momentum.mul_add(current_theta, (1.0 - self.config.momentum) * peak_theta);
-            let new_phi =
-                self.config.momentum.mul_add(current_phi, (1.0 - self.config.momentum) * peak_phi);
+            let new_theta = self
+                .config
+                .momentum
+                .mul_add(current_theta, (1.0 - self.config.momentum) * peak_theta);
+            let new_phi = self
+                .config
+                .momentum
+                .mul_add(current_phi, (1.0 - self.config.momentum) * peak_phi);
 
             current_theta = new_theta;
             current_phi = new_phi;

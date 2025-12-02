@@ -64,8 +64,7 @@ use thrml_kernels::cosine_similarity_fused;
 // ============================================================================
 
 /// Partition method for ROOTS index construction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PartitionMethod {
     /// Pure Ising max-cut: similarity-based graph partitioning only.
     /// May create "cantaloupe slice" elongated partitions.
@@ -83,7 +82,6 @@ pub enum PartitionMethod {
     #[default]
     AlternatingMaxCut,
 }
-
 
 /// Configuration for ROOTS index construction.
 #[derive(Clone, Copy, Debug)]
@@ -644,7 +642,10 @@ impl ProminenceStats {
         // Combined variance (Welford's parallel algorithm)
         let m2_self = self.std * self.std * self.count as f32;
         let m2_other = other.std * other.std * other.count as f32;
-        let m2_combined = (delta * delta).mul_add(self.count as f32 * other.count as f32 / combined_count as f32, m2_self + m2_other);
+        let m2_combined = (delta * delta).mul_add(
+            self.count as f32 * other.count as f32 / combined_count as f32,
+            m2_self + m2_other,
+        );
 
         self.mean = combined_mean;
         self.std = (m2_combined / combined_count as f32).sqrt();
@@ -1187,7 +1188,9 @@ pub enum RootsNode {
 impl RootsNode {
     /// Create a leaf node from a partition.
     pub fn leaf(partition: RootsPartition) -> Self {
-        Self::Leaf { partition: Box::new(partition) }
+        Self::Leaf {
+            partition: Box::new(partition),
+        }
     }
 
     /// Create an internal node from two children.
@@ -1208,7 +1211,8 @@ impl RootsNode {
             let right_weight = right_count as f32 / total_count as f32;
 
             for i in 0..embedding_dim {
-                centroid[i] = left_centroid[i].mul_add(left_weight, right_centroid[i] * right_weight);
+                centroid[i] =
+                    left_centroid[i].mul_add(left_weight, right_centroid[i] * right_weight);
             }
         }
 
@@ -1287,9 +1291,7 @@ impl RootsNode {
     pub fn leaf_count(&self) -> usize {
         match self {
             Self::Leaf { .. } => 1,
-            Self::Internal { children, .. } => {
-                children.0.leaf_count() + children.1.leaf_count()
-            }
+            Self::Internal { children, .. } => children.0.leaf_count() + children.1.leaf_count(),
         }
     }
 
@@ -2450,18 +2452,24 @@ impl RootsIndex {
         {
             // Use fused cosine similarity kernel
             let query_data: Vec<f32> = query.clone().into_data().to_vec().expect("query to vec");
-            let centroids_data: Vec<f32> = self.centroids_matrix.clone().into_data().to_vec().expect("centroids to vec");
+            let centroids_data: Vec<f32> = self
+                .centroids_matrix
+                .clone()
+                .into_data()
+                .to_vec()
+                .expect("centroids to vec");
             let [n_centroids, d] = self.centroids_matrix.dims();
-            
+
             let device = thrml_core::backend::init_gpu_device();
-            let query_cube: Tensor<CubeWgpuBackend, 1> = 
+            let query_cube: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(query_data.as_slice(), &device);
-            let centroids_flat: Tensor<CubeWgpuBackend, 1> = 
+            let centroids_flat: Tensor<CubeWgpuBackend, 1> =
                 Tensor::from_floats(centroids_data.as_slice(), &device);
-            let centroids_cube: Tensor<CubeWgpuBackend, 2> = centroids_flat.reshape([n_centroids, d]);
-            
+            let centroids_cube: Tensor<CubeWgpuBackend, 2> =
+                centroids_flat.reshape([n_centroids, d]);
+
             let sims_cube = cosine_similarity_fused(query_cube, centroids_cube);
-            
+
             // Convert back to WgpuBackend
             let sims_data: Vec<f32> = sims_cube.into_data().to_vec().expect("sims to vec");
             let wgpu_device = query.device();
@@ -2471,7 +2479,7 @@ impl RootsIndex {
         #[cfg(not(feature = "fused-kernels"))]
         {
             let k = self.partitions.len();
-            
+
             // Normalize query
             let query_norm = query.clone().powf_scalar(2.0).sum().sqrt();
             let query_normalized = query.clone() / (query_norm + 1e-8);
@@ -2866,7 +2874,9 @@ impl RootsIndex {
                     p.radius_range = flat.radius_range;
                     p
                 });
-            RootsNode::Leaf { partition: Box::new(partition) }
+            RootsNode::Leaf {
+                partition: Box::new(partition),
+            }
         } else {
             // Recurse into children
             let left_flat = node_map.get(&flat.left_child.unwrap()).unwrap();
@@ -3139,7 +3149,9 @@ impl PatchClassifierEBM {
                 }
             }
 
-            total_loss += config.temperature.mul_add(max_s + sum_exp.ln(), energies[correct_k]);
+            total_loss += config
+                .temperature
+                .mul_add(max_s + sum_exp.ln(), energies[correct_k]);
             total_e_pos += energies[correct_k];
             total_e_neg += energies.iter().sum::<f32>() / energies.len() as f32;
         }

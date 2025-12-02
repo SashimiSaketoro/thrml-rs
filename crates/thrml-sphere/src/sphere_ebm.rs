@@ -232,11 +232,7 @@ pub fn compute_ideal_radii(
     };
 
     // Get ranking by argsort (CPU operation since Burn lacks argsort)
-    let weights_data: Vec<f32> = weights
-        
-        .into_data()
-        .to_vec()
-        .expect("weights to vec");
+    let weights_data: Vec<f32> = weights.into_data().to_vec().expect("weights to vec");
 
     // Create (index, weight) pairs and sort by weight descending
     // Higher weight = smaller radius = lower rank

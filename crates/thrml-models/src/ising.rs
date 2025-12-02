@@ -179,11 +179,7 @@ impl AbstractEBM for IsingEBM {
             .into_data()
             .to_vec()
             .expect("read biases");
-        let spin_data: Vec<f32> = spin_state
-            
-            .into_data()
-            .to_vec()
-            .expect("read spin state");
+        let spin_data: Vec<f32> = spin_state.into_data().to_vec().expect("read spin state");
 
         let bias_energy: f32 = bias_data
             .iter()

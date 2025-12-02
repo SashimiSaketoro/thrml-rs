@@ -441,7 +441,9 @@ pub mod substring {
         }
 
         let substring_sim = compute_similarity(bytes_a, bytes_b, config);
-        config.alpha.mul_add(embedding_sim, config.beta * substring_sim)
+        config
+            .alpha
+            .mul_add(embedding_sim, config.beta * substring_sim)
     }
 
     #[cfg(test)]

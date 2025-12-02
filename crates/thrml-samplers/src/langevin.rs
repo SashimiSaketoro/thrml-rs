@@ -95,9 +95,10 @@ pub fn langevin_step_2d(
     let shape = state.dims();
 
     // Apply gradient clipping if enabled
-    let grad = config
-        .gradient_clip
-        .map_or_else(|| gradient.clone(), |max_grad| clip_gradient_2d(gradient, max_grad));
+    let grad = config.gradient_clip.map_or_else(
+        || gradient.clone(),
+        |max_grad| clip_gradient_2d(gradient, max_grad),
+    );
 
     // Drift: -gradient * step_size
     let drift = grad.mul_scalar(-config.step_size);
@@ -202,9 +203,10 @@ pub fn langevin_step_1d(
     let n = state.dims()[0];
 
     // Apply gradient clipping if enabled
-    let grad = config
-        .gradient_clip
-        .map_or_else(|| gradient.clone(), |max_grad| clip_gradient_1d(gradient, max_grad));
+    let grad = config.gradient_clip.map_or_else(
+        || gradient.clone(),
+        |max_grad| clip_gradient_1d(gradient, max_grad),
+    );
 
     // Drift: -gradient * step_size
     let drift = grad.mul_scalar(-config.step_size);

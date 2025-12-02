@@ -4,7 +4,8 @@
 
 // Clippy pedantic allows - verified needed 2024-12-01
 #![allow(clippy::doc_markdown)] // Technical terms (BLT, ROOTS, etc.)
-#![allow(clippy::must_use_candidate)] // Getters don't all need #[must_use]
+#![allow(clippy::must_use_candidate)]
+// Getters don't all need #[must_use]
 // Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
 // and practical GPU memory limits (~2B elements = 8GB minimum)
 #![allow(clippy::cast_possible_truncation)]

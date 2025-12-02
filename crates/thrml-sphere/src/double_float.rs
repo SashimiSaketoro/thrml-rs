@@ -143,7 +143,7 @@ pub fn df_add<B: Backend, const D: usize>(
     let e = s.lo + a.lo.clone() + b.lo.clone();
 
     // Renormalize
-    
+
     two_sum(&s.hi, &e)
 }
 

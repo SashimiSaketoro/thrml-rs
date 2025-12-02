@@ -903,9 +903,7 @@ pub use mmap_loader::MmapSphereLoader;
 
 #[cfg(test)]
 mod tests {
-    
-    
-    
+
     use thrml_core::backend::init_gpu_device;
 
     #[test]

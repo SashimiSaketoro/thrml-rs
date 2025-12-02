@@ -304,12 +304,14 @@ impl DiscreteEBMFactor {
         weights: Tensor<WgpuBackend, 3>,
     ) -> Result<Self, String> {
         // Validate that all node groups have the same length
-        let n_nodes =
-            if let Some(first) = spin_node_groups.first().or_else(|| categorical_node_groups.first()) {
-                first.len()
-            } else {
-                return Err("At least one node group must be provided".to_string());
-            };
+        let n_nodes = if let Some(first) = spin_node_groups
+            .first()
+            .or_else(|| categorical_node_groups.first())
+        {
+            first.len()
+        } else {
+            return Err("At least one node group must be provided".to_string());
+        };
 
         for group in spin_node_groups
             .iter()

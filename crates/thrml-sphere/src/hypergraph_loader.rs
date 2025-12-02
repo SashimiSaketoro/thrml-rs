@@ -453,16 +453,16 @@ mod sqlite_loader {
             let blob: Vec<u8> = row.get(1)?;
 
             // Try to decode as NodeData - combine pattern matches
-            if let Ok((BltNodeData::Leaf(segment), _)) = bincode::serde::decode_from_slice::<BltNodeData, _>(
-                &blob,
-                bincode::config::standard(),
-            ) {
+            if let Ok((BltNodeData::Leaf(segment), _)) =
+                bincode::serde::decode_from_slice::<BltNodeData, _>(
+                    &blob,
+                    bincode::config::standard(),
+                )
+            {
                 // Extract patch_index and prominence from metadata.extra
                 if let Some(meta) = segment.metadata {
                     if let Some(extra) = meta.extra {
-                        if let Some(patch_idx) =
-                            extra.get("patch_index").and_then(|v| v.as_u64())
-                        {
+                        if let Some(patch_idx) = extra.get("patch_index").and_then(|v| v.as_u64()) {
                             let prominence = extra
                                 .get("prominence")
                                 .and_then(|v| v.as_f64())

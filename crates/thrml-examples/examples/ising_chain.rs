@@ -111,11 +111,7 @@ fn main() {
         &device,
     );
 
-    let state_data: Vec<f32> = sample_state
-        
-        .into_data()
-        .to_vec()
-        .expect("read state");
+    let state_data: Vec<f32> = sample_state.into_data().to_vec().expect("read state");
     println!(
         "All-up state representation: {:?}\n",
         state_data

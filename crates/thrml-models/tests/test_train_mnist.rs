@@ -454,20 +454,8 @@ fn test_mnist_training_full() {
         let keys = key.split(3);
         key = keys[2];
 
-        let init_free_pos = hinton_init(
-            keys[0],
-            &model,
-            &positive_sampling_blocks,
-            &[],
-            &device,
-        );
-        let init_free_neg = hinton_init(
-            keys[1],
-            &model,
-            &negative_sampling_blocks,
-            &[],
-            &device,
-        );
+        let init_free_pos = hinton_init(keys[0], &model, &positive_sampling_blocks, &[], &device);
+        let init_free_neg = hinton_init(keys[1], &model, &negative_sampling_blocks, &[], &device);
 
         // Squeeze batch dimension since we're doing single-sample
         let init_free_pos_1d: Vec<Tensor<WgpuBackend, 1>> = init_free_pos

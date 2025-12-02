@@ -36,9 +36,7 @@ where
     let dim = input.shape[1];
 
     let shape_out = Shape::from(vec![n_rows, dim]);
-    let buffer = input
-        .client
-        .empty(n_rows * dim * core::mem::size_of::<F>());
+    let buffer = input.client.empty(n_rows * dim * core::mem::size_of::<F>());
 
     let output = CubeTensor::new_contiguous(
         input.client.clone(),
@@ -95,9 +93,7 @@ where
     let shape_out = Shape::from(vec![n_rows, dim]);
     let shape_norms = Shape::from(vec![n_rows]);
 
-    let buffer_out = input
-        .client
-        .empty(n_rows * dim * core::mem::size_of::<F>());
+    let buffer_out = input.client.empty(n_rows * dim * core::mem::size_of::<F>());
     let buffer_norms = input.client.empty(n_rows * core::mem::size_of::<F>());
 
     let output = CubeTensor::new_contiguous(
@@ -139,9 +135,7 @@ where
 ///
 /// # Returns
 /// Normalized tensor where each row has unit L2 norm.
-pub fn l2_normalize_fused(
-    input: Tensor<CubeWgpuBackend, 2>,
-) -> Tensor<CubeWgpuBackend, 2> {
+pub fn l2_normalize_fused(input: Tensor<CubeWgpuBackend, 2>) -> Tensor<CubeWgpuBackend, 2> {
     use cubecl::wgpu::WgpuRuntime;
     let inner = launch_l2_normalize::<WgpuRuntime, f32, i32, u32>(input.into_primitive().tensor());
     Tensor::from_primitive(burn::tensor::TensorPrimitive::Float(inner))

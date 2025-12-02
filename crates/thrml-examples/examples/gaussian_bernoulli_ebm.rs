@@ -190,8 +190,7 @@ fn main() {
     // Spin biases - as a 3D tensor [n_spin, 1, 1]
     let spin_bias_3d: Tensor<WgpuBackend, 3> = spin_biases.reshape([n_spin as i32, 1, 1]);
     interaction_groups.push(
-        InteractionGroup::new(spin_bias_3d, spin_all_block, vec![], 0)
-            .expect("spin bias ig"),
+        InteractionGroup::new(spin_bias_3d, spin_all_block, vec![], 0).expect("spin bias ig"),
     );
 
     // Spin-spin coupling - as 3D tensor [n_edges, 1, 1]
@@ -206,13 +205,8 @@ fn main() {
         .expect("ss coupling ig 1"),
     );
     interaction_groups.push(
-        InteractionGroup::new(
-            ss_weights_3d,
-            ss_block_j,
-            vec![ss_block_i],
-            1,
-        )
-        .expect("ss coupling ig 2"),
+        InteractionGroup::new(ss_weights_3d, ss_block_j, vec![ss_block_i], 1)
+            .expect("ss coupling ig 2"),
     );
 
     // Spin-continuous coupling - using Linear interaction

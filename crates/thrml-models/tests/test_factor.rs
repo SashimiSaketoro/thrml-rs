@@ -103,7 +103,10 @@ fn test_spin_factor_to_interactions() {
 
     // Check that head and tail nodes are properly set
     let group = &interactions[0];
-    assert!(!group.head_nodes.is_empty(), "Head nodes should not be empty");
+    assert!(
+        !group.head_nodes.is_empty(),
+        "Head nodes should not be empty"
+    );
 }
 
 #[cfg(feature = "gpu")]

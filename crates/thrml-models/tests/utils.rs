@@ -98,16 +98,8 @@ pub fn generate_all_states_bin_cat(
     let mut bin_expanded_data = Vec::new();
     let mut cat_expanded_data = Vec::new();
 
-    let bin_data: Vec<f32> = bin_states
-        
-        .into_data()
-        .to_vec()
-        .expect("read bin data");
-    let cat_data: Vec<i32> = cat_states
-        
-        .into_data()
-        .to_vec()
-        .expect("read cat data");
+    let bin_data: Vec<f32> = bin_states.into_data().to_vec().expect("read bin data");
+    let cat_data: Vec<i32> = cat_states.into_data().to_vec().expect("read cat data");
 
     for i in 0..n_bin_states {
         for j in 0..n_cat_states {

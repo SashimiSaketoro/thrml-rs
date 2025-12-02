@@ -488,8 +488,10 @@ impl ProbabilisticGraphEBM {
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Self {
         let n_nodes = embeddings.dims()[0];
-        let similarities =
-            SimilarityStorage::Dense(Box::new(Self::compute_dense_similarities(&embeddings, device)));
+        let similarities = SimilarityStorage::Dense(Box::new(Self::compute_dense_similarities(
+            &embeddings,
+            device,
+        )));
         let edge_mask = Some(sidecar.to_symmetric_adjacency(device));
 
         Self {
@@ -686,21 +688,18 @@ impl ProbabilisticGraphEBM {
         #[cfg(feature = "fused-kernels")]
         {
             // Use fused Gumbel-argmax kernel for efficient categorical sampling
-            let uniform: Tensor<WgpuBackend, 2> = Tensor::random(
-                [n, n],
-                Distribution::Uniform(1e-10, 1.0 - 1e-10),
-                device,
-            );
+            let uniform: Tensor<WgpuBackend, 2> =
+                Tensor::random([n, n], Distribution::Uniform(1e-10, 1.0 - 1e-10), device);
 
             // gumbel_argmax_fused returns indices [N], convert to one-hot [N, N]
             let indices = gumbel_argmax_fused(logits.clone(), uniform);
-            
+
             // Create one-hot encoding from indices
             let indices_expanded = indices.unsqueeze_dim::<2>(1); // [N, 1]
-            let range: Tensor<WgpuBackend, 1, burn::tensor::Int> = 
+            let range: Tensor<WgpuBackend, 1, burn::tensor::Int> =
                 Tensor::arange(0..n as i64, device);
             let range_expanded = range.unsqueeze_dim::<2>(0); // [1, N]
-            
+
             // Compare: one_hot[i,j] = 1 if indices[i] == j
             indices_expanded.equal(range_expanded).float()
         }
@@ -708,23 +707,20 @@ impl ProbabilisticGraphEBM {
         #[cfg(not(feature = "fused-kernels"))]
         {
             // Reference implementation: Gumbel-max trick
-            let uniform: Tensor<WgpuBackend, 2> = Tensor::random(
-                [n, n],
-                Distribution::Uniform(1e-10, 1.0 - 1e-10),
-                device,
-            );
+            let uniform: Tensor<WgpuBackend, 2> =
+                Tensor::random([n, n], Distribution::Uniform(1e-10, 1.0 - 1e-10), device);
             let gumbel = -(-(uniform.log())).log();
             let perturbed = logits.clone() + gumbel;
-            
+
             // Argmax per row
             let indices = perturbed.argmax(1); // [N]
-            
+
             // Create one-hot encoding
             let indices_expanded = indices.unsqueeze_dim::<2>(1);
-            let range: Tensor<WgpuBackend, 1, burn::tensor::Int> = 
+            let range: Tensor<WgpuBackend, 1, burn::tensor::Int> =
                 Tensor::arange(0..n as i64, device);
             let range_expanded = range.unsqueeze_dim::<2>(0);
-            
+
             indices_expanded.equal(range_expanded).float()
         }
     }
@@ -1116,14 +1112,24 @@ impl GraphEBMTrainer {
         let prom_grad = pos_prom_grad - neg_prom_grad;
 
         // Apply weight decay
-        let sim_grad = self.config.weight_decay.mul_add(graph.config.similarity_weight, sim_grad);
-        let prom_grad = self.config.weight_decay.mul_add(graph.config.prominence_weight, prom_grad);
+        let sim_grad = self
+            .config
+            .weight_decay
+            .mul_add(graph.config.similarity_weight, sim_grad);
+        let prom_grad = self
+            .config
+            .weight_decay
+            .mul_add(graph.config.prominence_weight, prom_grad);
 
         // Update with momentum
-        self.state.sim_weight_momentum =
-            self.config.momentum.mul_add(self.state.sim_weight_momentum, sim_grad);
-        self.state.prom_weight_momentum =
-            self.config.momentum.mul_add(self.state.prom_weight_momentum, prom_grad);
+        self.state.sim_weight_momentum = self
+            .config
+            .momentum
+            .mul_add(self.state.sim_weight_momentum, sim_grad);
+        self.state.prom_weight_momentum = self
+            .config
+            .momentum
+            .mul_add(self.state.prom_weight_momentum, prom_grad);
 
         // Apply updates
         graph.config.similarity_weight -=

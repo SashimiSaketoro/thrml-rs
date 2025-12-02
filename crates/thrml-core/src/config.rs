@@ -381,10 +381,8 @@ impl PathConfigBuilder {
     pub fn build(self) -> PathConfig {
         let defaults = PathConfig::default_dirs();
 
-        let (cache_default, data_default, output_default) = self
-            .base_dir
-            .as_ref()
-            .map_or(defaults, |base| {
+        let (cache_default, data_default, output_default) =
+            self.base_dir.as_ref().map_or(defaults, |base| {
                 (base.join("cache"), base.join("data"), base.join("output"))
             });
 

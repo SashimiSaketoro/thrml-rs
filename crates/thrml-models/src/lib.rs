@@ -4,7 +4,8 @@
 
 // Clippy pedantic allows - verified needed 2024-12-01
 #![allow(clippy::doc_markdown)] // Technical terms (EBM, RBM, etc.)
-#![allow(clippy::must_use_candidate)] // Getters don't all need #[must_use]
+#![allow(clippy::must_use_candidate)]
+// Getters don't all need #[must_use]
 // Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)] // Acceptable in ML contexts

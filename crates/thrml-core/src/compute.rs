@@ -1374,7 +1374,7 @@ mod tests {
         // GpuHpcFp64 with CUDA → can do precision ops on GPU
         let policy = RuntimePolicy::nvidia_hopper();
         let backend = ComputeBackend::from_policy(&policy);
-        
+
         #[cfg(feature = "cuda")]
         {
             // With CUDA, HPC can do precision ops on GPU (f64 support)

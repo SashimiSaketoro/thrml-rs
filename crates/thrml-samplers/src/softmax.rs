@@ -523,11 +523,8 @@ impl CategoricalGibbsConditional {
                     let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let active_cuda = cuda_tensor_2d(
-                        &active_f64,
-                        [n_nodes, n_interactions],
-                        &cuda_device,
-                    );
+                    let active_cuda =
+                        cuda_tensor_2d(&active_f64, [n_nodes, n_interactions], &cuda_device);
 
                     // Split states
                     let (states_spin, states_cat) = split_states(states, n_spin);
@@ -542,11 +539,7 @@ impl CategoricalGibbsConditional {
 
                     // Handle weights and categorical indexing
                     let weights_indexed: BurnTensor<CudaBackend, 3> = if states_cat.is_empty() {
-                        cuda_tensor_3d(
-                            &tensor_f64,
-                            [n_nodes, n_interactions, n_cats],
-                            &cuda_device,
-                        )
+                        cuda_tensor_3d(&tensor_f64, [n_nodes, n_interactions, n_cats], &cuda_device)
                     } else {
                         // Simplified: for categorical neighbors, use CPU f64 path for correctness
                         // Full gather implementation would be complex
@@ -784,7 +777,10 @@ fn compute_spin_product_cpu_f64(
 
     // Initialize with first state
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
-    let mut result: Vec<f64> = first_data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
+    let mut result: Vec<f64> = first_data
+        .iter()
+        .map(|&s| 2.0f64.mul_add(s as f64, -1.0))
+        .collect();
 
     // Pad if needed
     result.resize(total, 1.0);
@@ -829,13 +825,19 @@ fn compute_spin_product_cuda_f64(
 
     // Convert first state to CUDA f64
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
-    let first_f64: Vec<f64> = first_data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
+    let first_f64: Vec<f64> = first_data
+        .iter()
+        .map(|&s| 2.0f64.mul_add(s as f64, -1.0))
+        .collect();
     let mut result = cuda_tensor_2d(&first_f64, [n_nodes, n_interactions], cuda_device);
 
     // Multiply remaining states
     for state in spin_vals.iter().skip(1) {
         let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
-        let data_f64: Vec<f64> = data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
+        let data_f64: Vec<f64> = data
+            .iter()
+            .map(|&s| 2.0f64.mul_add(s as f64, -1.0))
+            .collect();
         let state_cuda = cuda_tensor_2d(&data_f64, [n_nodes, n_interactions], cuda_device);
         result = result * state_cuda;
     }

@@ -58,10 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // A Block is a collection of nodes of the same type
     println!("Creating blocks...");
-    let spin_block = Block::new(vec![spin_node1, spin_node2])
-        .expect("Failed to create spin block");
-    let cat_block = Block::new(vec![cat_node1, cat_node2])
-        .expect("Failed to create categorical block");
+    let spin_block = Block::new(vec![spin_node1, spin_node2]).expect("Failed to create spin block");
+    let cat_block =
+        Block::new(vec![cat_node1, cat_node2]).expect("Failed to create categorical block");
 
     println!("  Spin block: {} nodes", spin_block.len());
     println!("  Categorical block: {} nodes", cat_block.len());

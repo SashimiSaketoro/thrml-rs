@@ -37,7 +37,10 @@ where
     let vectors = into_contiguous(vectors);
 
     assert!(query.shape.num_dims() == 1, "query must be 1D `[dim]`");
-    assert!(vectors.shape.num_dims() == 2, "vectors must be 2D `[n_vectors, dim]`");
+    assert!(
+        vectors.shape.num_dims() == 2,
+        "vectors must be 2D `[n_vectors, dim]`"
+    );
 
     let dim = query.shape[0];
     let n_vectors = vectors.shape[0];
@@ -93,8 +96,14 @@ where
     let queries = into_contiguous(queries);
     let vectors = into_contiguous(vectors);
 
-    assert!(queries.shape.num_dims() == 2, "queries must be 2D `[n_queries, dim]`");
-    assert!(vectors.shape.num_dims() == 2, "vectors must be 2D `[n_vectors, dim]`");
+    assert!(
+        queries.shape.num_dims() == 2,
+        "queries must be 2D `[n_queries, dim]`"
+    );
+    assert!(
+        vectors.shape.num_dims() == 2,
+        "vectors must be 2D `[n_vectors, dim]`"
+    );
 
     let n_queries = queries.shape[0];
     let dim = queries.shape[1];

@@ -41,7 +41,7 @@ pub struct LasingDynamics {
 
 impl LasingDynamics {
     /// Create new lasing dynamics with default parameters.
-    pub fn new(min_radius: f32, max_radius: f32) -> Self {
+    pub const fn new(min_radius: f32, max_radius: f32) -> Self {
         Self {
             beta: 0.1,
             baseline: 0.5,
@@ -53,25 +53,25 @@ impl LasingDynamics {
     }
 
     /// Set gain coefficient.
-    pub fn with_beta(mut self, beta: f32) -> Self {
+    pub const fn with_beta(mut self, beta: f32) -> Self {
         self.beta = beta;
         self
     }
 
     /// Set coherence baseline.
-    pub fn with_baseline(mut self, baseline: f32) -> Self {
+    pub const fn with_baseline(mut self, baseline: f32) -> Self {
         self.baseline = baseline;
         self
     }
 
     /// Set number of steps.
-    pub fn with_steps(mut self, steps: usize) -> Self {
+    pub const fn with_steps(mut self, steps: usize) -> Self {
         self.steps = steps;
         self
     }
 
     /// Set step size.
-    pub fn with_step_size(mut self, step_size: f32) -> Self {
+    pub const fn with_step_size(mut self, step_size: f32) -> Self {
         self.step_size = step_size;
         self
     }
@@ -170,7 +170,7 @@ pub struct LasingLangevinOptimizer {
 
 impl LasingLangevinOptimizer {
     /// Create new combined optimizer.
-    pub fn new(
+    pub const fn new(
         lasing: LasingDynamics,
         langevin_steps_per_lasing: usize,
         outer_iterations: usize,
@@ -228,7 +228,7 @@ impl LasingLangevinOptimizer {
 pub fn estimate_baseline(coherence: &Tensor<WgpuBackend, 1>) -> f32 {
     // Use median coherence as baseline
     let coh_data: Vec<f32> = coherence.clone().into_data().to_vec().expect("coh to vec");
-    let mut sorted = coh_data.clone();
+    let mut sorted = coh_data;
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let n = sorted.len();
@@ -258,7 +258,11 @@ mod tests {
         let mid_radius = 50.0;
         let r = Tensor::from_data([mid_radius; 10].as_slice(), &device);
         let theta = Tensor::random([n], Distribution::Uniform(0.5, 2.5), &device);
-        let phi = Tensor::random([n], Distribution::Uniform(0.0, 6.28), &device);
+        let phi = Tensor::random(
+            [n],
+            Distribution::Uniform(0.0, std::f64::consts::TAU),
+            &device,
+        );
         let init_coords = SphericalCoords::new(r, theta, phi);
 
         // Half high coherence, half low coherence

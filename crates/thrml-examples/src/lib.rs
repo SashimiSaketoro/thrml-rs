@@ -3,6 +3,9 @@
 //! Shared utilities for THRML examples, including graph generation,
 //! coloring algorithms, and visualization helpers.
 
+// Clippy pedantic configuration
+
+
 use petgraph::graph::{NodeIndex, UnGraph};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;

@@ -63,7 +63,7 @@ impl WaterFillingHamiltonian {
     /// * `ideal_radii` - Target radii for each point \[N\]
     /// * `similarity` - Pairwise similarity matrix \[N, N\]
     /// * `interaction_radius` - Width of Gaussian lateral interaction
-    pub fn new(
+    pub const fn new(
         ideal_radii: Tensor<WgpuBackend, 1>,
         similarity: Tensor<WgpuBackend, 2>,
         interaction_radius: f32,

@@ -110,10 +110,104 @@ fn benchmark_sigmoid_bernoulli(c: &mut Criterion) {
 }
 
 #[cfg(feature = "gpu")]
+fn batch_gather_reference(
+    weights: Tensor<WgpuBackend, 3>,
+    indices: Tensor<WgpuBackend, 2, burn::tensor::Int>,
+) -> Tensor<WgpuBackend, 1> {
+    let [batch_size, n_k, n_dim] = weights.dims();
+    let device = weights.device();
+
+    // Create batch indices
+    let batch_indices: Tensor<WgpuBackend, 1, burn::tensor::Int> =
+        Tensor::arange(0..batch_size as i64, &device).reshape([batch_size]);
+
+    // Extract k and dim indices
+    let k_indices: Tensor<WgpuBackend, 1, burn::tensor::Int> =
+        indices.clone().slice([0..batch_size, 0..1]).squeeze::<1>();
+    let dim_indices: Tensor<WgpuBackend, 1, burn::tensor::Int> =
+        indices.slice([0..batch_size, 1..2]).squeeze::<1>();
+
+    // Compute linear indices
+    let linear_indices =
+        batch_indices * (n_k * n_dim) as i64 + k_indices * n_dim as i64 + dim_indices;
+
+    // Flatten weights and gather
+    let weights_flat = weights.reshape([batch_size * n_k * n_dim]);
+    weights_flat.select(0, linear_indices)
+}
+
+#[cfg(feature = "gpu")]
+fn benchmark_batch_gather(c: &mut Criterion) {
+    let device = init_gpu_device();
+
+    let mut group = c.benchmark_group("batch_gather");
+
+    for size in [1000, 10000, 100000].iter() {
+        let k = 16;
+        let dim = 64;
+
+        group.bench_with_input(BenchmarkId::new("reference", size), size, |b, &size| {
+            let weights: Tensor<WgpuBackend, 3> =
+                Tensor::random([size, k, dim], Distribution::Normal(0.0, 1.0), &device);
+            
+            // Create random indices within bounds - create float then convert
+            let k_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+                [size, 1],
+                Distribution::Uniform(0.0, (k - 1) as f64),
+                &device,
+            );
+            let dim_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+                [size, 1],
+                Distribution::Uniform(0.0, (dim - 1) as f64),
+                &device,
+            );
+            let k_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = k_indices_float.int();
+            let dim_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = dim_indices_float.int();
+            let indices = Tensor::cat(vec![k_indices, dim_indices], 1);
+
+            b.iter(|| {
+                batch_gather_reference(black_box(weights.clone()), black_box(indices.clone()))
+            });
+        });
+
+        group.bench_with_input(BenchmarkId::new("fused", size), size, |b, &size| {
+            let weights: Tensor<WgpuBackend, 3> =
+                Tensor::random([size, k, dim], Distribution::Normal(0.0, 1.0), &device);
+            
+            let k_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+                [size, 1],
+                Distribution::Uniform(0.0, (k - 1) as f64),
+                &device,
+            );
+            let dim_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+                [size, 1],
+                Distribution::Uniform(0.0, (dim - 1) as f64),
+                &device,
+            );
+            let k_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = k_indices_float.int();
+            let dim_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = dim_indices_float.int();
+            let indices = Tensor::cat(vec![k_indices, dim_indices], 1);
+
+            b.iter(|| {
+                batch_gather_fused(
+                    black_box(weights.clone()),
+                    black_box(indices.clone()),
+                    &[dim, 1],
+                    k * dim,
+                )
+            });
+        });
+    }
+
+    group.finish();
+}
+
+#[cfg(feature = "gpu")]
 criterion_group!(
     benches,
     benchmark_gumbel_argmax,
-    benchmark_sigmoid_bernoulli
+    benchmark_sigmoid_bernoulli,
+    benchmark_batch_gather
 );
 
 #[cfg(feature = "gpu")]

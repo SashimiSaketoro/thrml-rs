@@ -42,8 +42,8 @@ use thrml_kernels::sigmoid_bernoulli_fused;
 pub struct SpinGibbsConditional;
 
 impl SpinGibbsConditional {
-    pub fn new() -> Self {
-        SpinGibbsConditional
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -85,7 +85,7 @@ impl AbstractConditionalSampler for SpinGibbsConditional {
         // Use fused kernel when feature is enabled
         #[cfg(feature = "fused-kernels")]
         {
-            return (sigmoid_bernoulli_fused(gamma, uniform), ());
+            (sigmoid_bernoulli_fused(gamma, uniform), ())
         }
 
         // Default implementation: separate operations
@@ -149,7 +149,7 @@ impl SpinGibbsConditional {
         // Use fused kernel when feature is enabled
         #[cfg(feature = "fused-kernels")]
         {
-            return (sigmoid_bernoulli_fused(gamma, uniform), ());
+            (sigmoid_bernoulli_fused(gamma, uniform), ())
         }
 
         // Default implementation: separate operations
@@ -230,7 +230,26 @@ impl SpinGibbsConditional {
         wgpu_device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
         use burn::tensor::Tensor as BurnTensor;
-        use thrml_core::backend::{init_cuda_device, CudaBackend};
+        use thrml_core::backend::{init_cuda_device, CudaBackend, CudaDevice};
+
+        // Helper to create CUDA f64 tensor with explicit dimensions
+        fn cuda_tensor_2d(
+            data: &[f64],
+            shape: [usize; 2],
+            device: &CudaDevice,
+        ) -> BurnTensor<CudaBackend, 2> {
+            let flat: BurnTensor<CudaBackend, 1> = BurnTensor::from_floats(data, device);
+            flat.reshape([shape[0] as i32, shape[1] as i32])
+        }
+
+        fn cuda_tensor_3d(
+            data: &[f64],
+            shape: [usize; 3],
+            device: &CudaDevice,
+        ) -> BurnTensor<CudaBackend, 3> {
+            let flat: BurnTensor<CudaBackend, 1> = BurnTensor::from_floats(data, device);
+            flat.reshape([shape[0] as i32, shape[1] as i32, shape[2] as i32])
+        }
 
         let n_nodes = output_spec.shape[0];
         let cuda_device = init_cuda_device();
@@ -258,15 +277,16 @@ impl SpinGibbsConditional {
                     let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let weights_cuda: BurnTensor<CudaBackend, 3> =
-                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device).reshape([
-                            n_nodes as i32,
-                            n_interactions as i32,
-                            weight_dim as i32,
-                        ]);
-                    let active_cuda: BurnTensor<CudaBackend, 2> =
-                        BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32]);
+                    let weights_cuda = cuda_tensor_3d(
+                        &tensor_f64,
+                        [n_nodes, n_interactions, weight_dim],
+                        &cuda_device,
+                    );
+                    let active_cuda = cuda_tensor_2d(
+                        &active_f64,
+                        [n_nodes, n_interactions],
+                        &cuda_device,
+                    );
 
                     // Convert spin states to CUDA f64
                     let states_spin_cuda: Vec<BurnTensor<CudaBackend, 2>> = states
@@ -275,19 +295,18 @@ impl SpinGibbsConditional {
                         .map(|s| {
                             let data: Vec<f32> = s.clone().into_data().to_vec().unwrap();
                             let data_f64: Vec<f64> = data.iter().map(|&x| x as f64).collect();
-                            BurnTensor::from_floats(data_f64.as_slice(), &cuda_device)
-                                .reshape([n_nodes as i32, n_interactions as i32])
+                            cuda_tensor_2d(&data_f64, [n_nodes, n_interactions], &cuda_device)
                         })
                         .collect();
 
+                    #[allow(clippy::needless_collect)] // Vec used for is_empty() and potential iteration
                     let states_cat_cuda: Vec<BurnTensor<CudaBackend, 2>> = states
                         .iter()
                         .skip(n_spin)
                         .map(|s| {
                             let data: Vec<f32> = s.clone().into_data().to_vec().unwrap();
                             let data_f64: Vec<f64> = data.iter().map(|&x| x as f64).collect();
-                            BurnTensor::from_floats(data_f64.as_slice(), &cuda_device)
-                                .reshape([n_nodes as i32, n_interactions as i32])
+                            cuda_tensor_2d(&data_f64, [n_nodes, n_interactions], &cuda_device)
                         })
                         .collect();
 
@@ -319,28 +338,36 @@ impl SpinGibbsConditional {
                     let weights_f64: Vec<f64> = weights_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let weights_cuda: BurnTensor<CudaBackend, 2> =
-                        BurnTensor::from_floats(weights_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32]);
-                    let active_cuda: BurnTensor<CudaBackend, 2> =
-                        BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32]);
+                    let weights_cuda = cuda_tensor_2d(
+                        &weights_f64,
+                        [n_nodes, n_interactions],
+                        &cuda_device,
+                    );
+                    let active_cuda = cuda_tensor_2d(
+                        &active_f64,
+                        [n_nodes, n_interactions],
+                        &cuda_device,
+                    );
 
                     let state_prod_cuda = if states.is_empty() {
                         BurnTensor::<CudaBackend, 2>::ones([n_nodes, n_interactions], &cuda_device)
                     } else {
                         let first_data: Vec<f32> = states[0].clone().into_data().to_vec().unwrap();
                         let first_f64: Vec<f64> = first_data.iter().map(|&x| x as f64).collect();
-                        let mut prod: BurnTensor<CudaBackend, 2> =
-                            BurnTensor::from_floats(first_f64.as_slice(), &cuda_device)
-                                .reshape([n_nodes as i32, n_interactions as i32]);
+                        let mut prod = cuda_tensor_2d(
+                            &first_f64,
+                            [n_nodes, n_interactions],
+                            &cuda_device,
+                        );
 
                         for s in states.iter().skip(1) {
                             let s_data: Vec<f32> = s.clone().into_data().to_vec().unwrap();
                             let s_f64: Vec<f64> = s_data.iter().map(|&x| x as f64).collect();
-                            let s_cuda: BurnTensor<CudaBackend, 2> =
-                                BurnTensor::from_floats(s_f64.as_slice(), &cuda_device)
-                                    .reshape([n_nodes as i32, n_interactions as i32]);
+                            let s_cuda = cuda_tensor_2d(
+                                &s_f64,
+                                [n_nodes, n_interactions],
+                                &cuda_device,
+                            );
                             prod = prod * s_cuda;
                         }
                         prod
@@ -424,7 +451,7 @@ impl SpinGibbsConditional {
                             let mut spin_prod: f64 = 1.0;
                             for spin_state in &states_spin {
                                 let s = spin_state[flat_idx] as f64;
-                                spin_prod *= 2.0 * s - 1.0; // Convert to ±1
+                                spin_prod *= 2.0f64.mul_add(s, -1.0); // Convert to ±1
                             }
 
                             // Get weight value

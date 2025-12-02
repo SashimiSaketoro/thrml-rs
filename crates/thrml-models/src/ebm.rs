@@ -98,7 +98,7 @@ impl FactorizedEBM {
         factors: Vec<Box<dyn EBMFactor>>,
         node_shape_dtypes: IndexMap<NodeType, TensorSpec>,
     ) -> Self {
-        FactorizedEBM {
+        Self {
             factor_list: factors,
             node_shape_dtypes,
         }

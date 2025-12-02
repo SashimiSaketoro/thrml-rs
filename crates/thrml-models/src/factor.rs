@@ -68,7 +68,7 @@ impl FactorInteractionGroup {
             );
         }
 
-        Ok(FactorInteractionGroup {
+        Ok(Self {
             interaction,
             head_nodes,
             tail_nodes,
@@ -180,6 +180,6 @@ impl FactorSamplingProgram {
         // Build the underlying BlockSamplingProgram
         let program = BlockSamplingProgram::new(gibbs_spec, samplers, interaction_groups)?;
 
-        Ok(FactorSamplingProgram { program })
+        Ok(Self { program })
     }
 }

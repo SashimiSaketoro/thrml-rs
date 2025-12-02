@@ -27,16 +27,28 @@
 //! - Competes for a shared attention budget
 //! - Can yield allocation to others when saturated
 
-use burn::tensor::Tensor;
+use burn::tensor::{Tensor, Transaction};
 use thrml_core::backend::WgpuBackend;
 use thrml_core::compute::{ComputeBackend, HardwareTier, OpType, RuntimePolicy};
 use thrml_core::SphericalCoords;
 use thrml_samplers::RngKey;
 
+// Fused kernel imports (when feature enabled)
+#[cfg(feature = "fused-kernels")]
+use thrml_core::backend::CubeWgpuBackend;
+#[cfg(feature = "fused-kernels")]
+use thrml_kernels::cosine_similarity_fused;
+
 use crate::config::SphereConfig;
+#[allow(unused_imports)]
+use crate::harmonic_navigator::HarmonicNavigationResult; // Used in navigator API
+use crate::harmonic_navigator::{HarmonicNavigator, HarmonicNavigatorConfig};
 use crate::hypergraph::HypergraphEBM;
 use crate::roots::{RootsConfig, RootsIndex};
 use crate::sphere_ebm::SphereEBM;
+
+// Graph EBM for cone coherence scoring via Gibbs sampling
+use thrml_models::graph_ebm::{ProbabilisticGraphConfig, ProbabilisticGraphEBM};
 
 /// Learnable weights for navigation energy terms.
 #[derive(Clone, Debug)]
@@ -51,6 +63,8 @@ pub struct NavigationWeights {
     pub lambda_entropy: f32,
     /// Weight for path length penalty (higher = prefer shorter paths)
     pub lambda_path: f32,
+    /// Weight for harmonic interference energy (higher = prefer SH-refined positions)
+    pub lambda_harmonic: f32,
     /// Temperature for LogSumExp softmax operations
     pub temperature: f32,
 }
@@ -63,6 +77,7 @@ impl Default for NavigationWeights {
             lambda_graph: 0.3,
             lambda_entropy: 0.2,
             lambda_path: 0.1,
+            lambda_harmonic: 0.4,
             temperature: 1.0,
         }
     }
@@ -70,25 +85,27 @@ impl Default for NavigationWeights {
 
 impl NavigationWeights {
     /// Create navigation weights with all terms enabled equally.
-    pub fn uniform() -> Self {
+    pub const fn uniform() -> Self {
         Self {
             lambda_semantic: 1.0,
             lambda_radial: 1.0,
             lambda_graph: 1.0,
             lambda_entropy: 1.0,
             lambda_path: 1.0,
+            lambda_harmonic: 1.0,
             temperature: 1.0,
         }
     }
 
     /// Create semantic-only navigation weights.
-    pub fn semantic_only() -> Self {
+    pub const fn semantic_only() -> Self {
         Self {
             lambda_semantic: 1.0,
             lambda_radial: 0.0,
             lambda_graph: 0.0,
             lambda_entropy: 0.0,
             lambda_path: 0.0,
+            lambda_harmonic: 0.0,
             temperature: 1.0,
         }
     }
@@ -102,6 +119,7 @@ impl NavigationWeights {
                 self.lambda_graph,
                 self.lambda_entropy,
                 self.lambda_path,
+                self.lambda_harmonic,
             ]
             .as_slice(),
             device,
@@ -112,47 +130,54 @@ impl NavigationWeights {
     pub fn from_tensor(tensor: &Tensor<WgpuBackend, 1>) -> Self {
         let data: Vec<f32> = tensor.clone().into_data().to_vec().expect("weights to vec");
         Self {
-            lambda_semantic: data.get(0).copied().unwrap_or(1.0),
+            lambda_semantic: data.first().copied().unwrap_or(1.0),
             lambda_radial: data.get(1).copied().unwrap_or(0.5),
             lambda_graph: data.get(2).copied().unwrap_or(0.3),
             lambda_entropy: data.get(3).copied().unwrap_or(0.2),
             lambda_path: data.get(4).copied().unwrap_or(0.1),
+            lambda_harmonic: data.get(5).copied().unwrap_or(0.4),
             temperature: 1.0,
         }
     }
 
     /// Builder: set semantic weight.
-    pub fn with_semantic(mut self, weight: f32) -> Self {
+    pub const fn with_semantic(mut self, weight: f32) -> Self {
         self.lambda_semantic = weight;
         self
     }
 
     /// Builder: set radial weight.
-    pub fn with_radial(mut self, weight: f32) -> Self {
+    pub const fn with_radial(mut self, weight: f32) -> Self {
         self.lambda_radial = weight;
         self
     }
 
     /// Builder: set graph weight.
-    pub fn with_graph(mut self, weight: f32) -> Self {
+    pub const fn with_graph(mut self, weight: f32) -> Self {
         self.lambda_graph = weight;
         self
     }
 
     /// Builder: set entropy weight.
-    pub fn with_entropy(mut self, weight: f32) -> Self {
+    pub const fn with_entropy(mut self, weight: f32) -> Self {
         self.lambda_entropy = weight;
         self
     }
 
     /// Builder: set path length weight.
-    pub fn with_path(mut self, weight: f32) -> Self {
+    pub const fn with_path(mut self, weight: f32) -> Self {
         self.lambda_path = weight;
         self
     }
 
+    /// Builder: set harmonic interference weight.
+    pub const fn with_harmonic(mut self, weight: f32) -> Self {
+        self.lambda_harmonic = weight;
+        self
+    }
+
     /// Builder: set temperature.
-    pub fn with_temperature(mut self, temp: f32) -> Self {
+    pub const fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = temp;
         self
     }
@@ -198,13 +223,13 @@ impl ConeConfig {
     }
 
     /// Set aperture width.
-    pub fn with_aperture(mut self, aperture: f32) -> Self {
+    pub const fn with_aperture(mut self, aperture: f32) -> Self {
         self.aperture = aperture;
         self
     }
 
     /// Set memory budget.
-    pub fn with_budget(mut self, budget_bytes: usize) -> Self {
+    pub const fn with_budget(mut self, budget_bytes: usize) -> Self {
         self.budget_bytes = budget_bytes;
         self
     }
@@ -433,25 +458,25 @@ impl BudgetConfig {
     }
 
     /// Builder: set maximum number of cones.
-    pub fn with_max_cones(mut self, max_cones: usize) -> Self {
+    pub const fn with_max_cones(mut self, max_cones: usize) -> Self {
         self.max_cones = max_cones;
         self
     }
 
     /// Builder: set minimum budget per cone.
-    pub fn with_min_cone_budget(mut self, min_budget: usize) -> Self {
+    pub const fn with_min_cone_budget(mut self, min_budget: usize) -> Self {
         self.min_cone_budget = min_budget;
         self
     }
 
     /// Builder: set peak detection threshold.
-    pub fn with_peak_threshold(mut self, threshold: f32) -> Self {
+    pub const fn with_peak_threshold(mut self, threshold: f32) -> Self {
         self.peak_threshold = threshold;
         self
     }
 
     /// Builder: set minimum peak separation.
-    pub fn with_min_peak_separation(mut self, separation: f32) -> Self {
+    pub const fn with_min_peak_separation(mut self, separation: f32) -> Self {
         self.min_peak_separation = separation;
         self
     }
@@ -580,13 +605,13 @@ impl RuntimeConfig {
     }
 
     /// Builder: override the budget configuration.
-    pub fn with_budget(mut self, budget: BudgetConfig) -> Self {
+    pub const fn with_budget(mut self, budget: BudgetConfig) -> Self {
         self.budget = budget;
         self
     }
 
     /// Builder: override the sphere configuration.
-    pub fn with_sphere(mut self, sphere: SphereConfig) -> Self {
+    pub const fn with_sphere(mut self, sphere: SphereConfig) -> Self {
         self.sphere = sphere;
         self
     }
@@ -600,14 +625,14 @@ impl RuntimeConfig {
     /// Check if this configuration is for HPC-class hardware.
     ///
     /// Returns true for NVIDIA Hopper, Blackwell, and Spark tiers.
-    pub fn is_hpc(&self) -> bool {
+    pub const fn is_hpc(&self) -> bool {
         self.policy.is_hpc_tier()
     }
 
     /// Check if this configuration uses unified memory.
     ///
     /// Returns true for Apple Silicon and DGX Spark (both use unified memory).
-    pub fn is_unified_memory(&self) -> bool {
+    pub const fn is_unified_memory(&self) -> bool {
         matches!(
             self.policy.tier,
             HardwareTier::AppleSilicon | HardwareTier::NvidiaSpark
@@ -695,7 +720,7 @@ impl ConeState {
     ///     0.75,
     /// );
     /// ```
-    pub fn new(config: ConeConfig, budget_bytes: usize, relevance: f32) -> Self {
+    pub const fn new(config: ConeConfig, budget_bytes: usize, relevance: f32) -> Self {
         Self {
             config,
             budget_bytes,
@@ -737,17 +762,17 @@ impl ConeState {
     }
 
     /// Mark this cone as saturated (found all relevant content).
-    pub fn saturate(&mut self) {
+    pub const fn saturate(&mut self) {
         self.is_saturated = true;
     }
 
     /// Get remaining budget in bytes.
-    pub fn remaining_budget(&self) -> usize {
+    pub const fn remaining_budget(&self) -> usize {
         self.budget_bytes.saturating_sub(self.budget_consumed)
     }
 
     /// Record budget consumption.
-    pub fn consume_budget(&mut self, bytes: usize) {
+    pub const fn consume_budget(&mut self, bytes: usize) {
         self.budget_consumed = self.budget_consumed.saturating_add(bytes);
     }
 }
@@ -788,7 +813,7 @@ pub struct NavigatorEBM {
 impl NavigatorEBM {
     /// Create a NavigatorEBM from a SphereEBM.
     pub fn from_sphere_ebm(sphere_ebm: SphereEBM) -> Self {
-        let config = sphere_ebm.config.clone();
+        let config = sphere_ebm.config;
         Self {
             sphere_ebm,
             hypergraph_ebm: None,
@@ -810,7 +835,7 @@ impl NavigatorEBM {
             embeddings,
             prominence,
             entropies.clone(),
-            config.clone(),
+            config,
             device,
         );
         Self {
@@ -829,7 +854,7 @@ impl NavigatorEBM {
     }
 
     /// Set navigation weights.
-    pub fn with_weights(mut self, weights: NavigationWeights) -> Self {
+    pub const fn with_weights(mut self, weights: NavigationWeights) -> Self {
         self.weights = weights;
         self
     }
@@ -837,6 +862,133 @@ impl NavigatorEBM {
     /// Get the number of points in the sphere.
     pub fn n_points(&self) -> usize {
         self.sphere_ebm.n_points()
+    }
+
+    // =========================================================================
+    // Cone Coherence Scoring (via ProbabilisticGraphEBM)
+    // =========================================================================
+
+    /// Score a cone's coherence using probabilistic graph EBM.
+    ///
+    /// Creates a temporary ProbabilisticGraphEBM from the sphere's embeddings
+    /// and computes the log-probability of the cone subgraph via Gibbs sampling.
+    /// Higher scores indicate more coherent/tightly-clustered cones.
+    ///
+    /// # Arguments
+    /// * `cone_indices` - Indices of points in the cone
+    /// * `n_sweeps` - Number of Gibbs sweeps (default: 4)
+    /// * `device` - GPU device
+    ///
+    /// # Returns
+    /// Coherence score in [0, 1] where higher = more coherent
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let cone_points = vec![10, 15, 22, 31];
+    /// let coherence = navigator.score_cone_coherence(&cone_points, 4, &device);
+    /// let alpha = (PI / 3.0) * (1.0 - coherence.clamp(0.0, 0.8));  // Narrow when confident
+    /// ```
+    pub fn score_cone_coherence(
+        &self,
+        cone_indices: &[usize],
+        n_sweeps: usize,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> f32 {
+        if cone_indices.len() < 2 {
+            return 1.0; // Single point is trivially coherent
+        }
+
+        // Create graph EBM config - use sparse mode for efficiency
+        let config = ProbabilisticGraphConfig {
+            similarity_weight: 1.0,
+            prominence_weight: 0.3,
+            temperature: 0.5,
+            default_sweeps: n_sweeps.max(1),
+            sparse_k: if cone_indices.len() > 100 {
+                Some(20)
+            } else {
+                None
+            },
+            similarity_threshold: None,
+        };
+
+        // Create temporary ProbabilisticGraphEBM from sphere embeddings
+        let graph_ebm = ProbabilisticGraphEBM::new(
+            self.sphere_ebm.embeddings.clone(),
+            self.sphere_ebm.prominence.clone(),
+            &config,
+            device,
+        );
+
+        // Compute subgraph log-probability via Gibbs sampling
+        let log_prob = graph_ebm.subgraph_log_prob(cone_indices, n_sweeps, device);
+
+        // Convert to [0, 1] score via sigmoid
+        // log_prob is typically negative; more negative = less coherent
+        let normalized = (log_prob / cone_indices.len() as f32).clamp(-10.0, 10.0);
+        1.0 / (1.0 + (-normalized).exp())
+    }
+
+    /// Score multiple cones and return coherence scores.
+    ///
+    /// Efficient batch version that reuses the graph EBM.
+    pub fn score_cones_coherence(
+        &self,
+        cones: &[Vec<usize>],
+        n_sweeps: usize,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Vec<f32> {
+        if cones.is_empty() {
+            return Vec::new();
+        }
+
+        // Create graph EBM once for all cones
+        let config = ProbabilisticGraphConfig {
+            similarity_weight: 1.0,
+            prominence_weight: 0.3,
+            temperature: 0.5,
+            default_sweeps: n_sweeps.max(1),
+            sparse_k: Some(50), // Use sparse for batch efficiency
+            similarity_threshold: None,
+        };
+
+        let graph_ebm = ProbabilisticGraphEBM::new(
+            self.sphere_ebm.embeddings.clone(),
+            self.sphere_ebm.prominence.clone(),
+            &config,
+            device,
+        );
+
+        // Score each cone
+        cones
+            .iter()
+            .map(|cone_indices| {
+                if cone_indices.len() < 2 {
+                    return 1.0;
+                }
+                let log_prob = graph_ebm.subgraph_log_prob(cone_indices, n_sweeps, device);
+                let normalized = (log_prob / cone_indices.len() as f32).clamp(-10.0, 10.0);
+                1.0 / (1.0 + (-normalized).exp())
+            })
+            .collect()
+    }
+
+    /// Compute adaptive cone aperture (alpha) based on coherence.
+    ///
+    /// More coherent cones → narrower aperture (more focused).
+    /// Less coherent cones → wider aperture (explore more).
+    ///
+    /// # Arguments
+    /// * `coherence` - Coherence score from `score_cone_coherence`
+    /// * `base_alpha` - Base aperture angle in radians (default: π/3)
+    ///
+    /// # Returns
+    /// Adaptive aperture angle in radians
+    pub fn adaptive_cone_alpha(coherence: f32, base_alpha: f32) -> f32 {
+        // High coherence (close to 1.0) → narrow cone (small alpha)
+        // Low coherence (close to 0.0) → wide cone (large alpha)
+        let coherence_clamped = coherence.clamp(0.0, 0.95);
+        base_alpha * (1.0 - coherence_clamped * 0.7) // Scale down to 30% at max coherence
     }
 
     /// Compute semantic energy between query and targets.
@@ -974,7 +1126,7 @@ impl NavigatorEBM {
     /// Compute path length energy.
     ///
     /// E_path(P) = |P| (simple length penalty)
-    pub fn path_energy(&self, path: &[usize]) -> f32 {
+    pub const fn path_energy(&self, path: &[usize]) -> f32 {
         path.len() as f32
     }
 
@@ -1044,32 +1196,55 @@ impl NavigatorEBM {
             return Tensor::zeros([0], device);
         }
 
-        // Normalize query
-        let query_norm = query_embedding.clone().powf_scalar(2.0).sum().sqrt();
-        let query_normalized = query_embedding.clone() / (query_norm + 1e-8);
-
         // Gather target embeddings: [n_targets, d]
-        // Use select to get rows by indices
         let embeddings_2d = self.sphere_ebm.embeddings.clone(); // [n, d]
         let target_embeddings = embeddings_2d.select(0, target_indices.clone()); // [n_targets, d]
 
-        // Normalize target embeddings along dim 1
-        // sum_dim keeps the dimension, so we need to handle this carefully
-        let target_sq = target_embeddings.clone().powf_scalar(2.0);
-        let target_sum: Tensor<WgpuBackend, 2> = target_sq.sum_dim(1); // [n_targets, 1]
-        let target_norms = target_sum.sqrt(); // [n_targets, 1]
-        let target_normalized = target_embeddings / (target_norms.clone() + 1e-8); // broadcasts [n_targets, d]
+        #[cfg(feature = "fused-kernels")]
+        {
+            // Use fused cosine similarity kernel
+            let query_data: Vec<f32> = query_embedding.clone().into_data().to_vec().expect("query to vec");
+            let target_data: Vec<f32> = target_embeddings.into_data().to_vec().expect("target to vec");
+            let d = self.sphere_ebm.embedding_dim();
+            
+            let cube_device = thrml_core::backend::init_gpu_device();
+            let query_cube: Tensor<CubeWgpuBackend, 1> = 
+                Tensor::from_floats(query_data.as_slice(), &cube_device);
+            let target_flat: Tensor<CubeWgpuBackend, 1> = 
+                Tensor::from_floats(target_data.as_slice(), &cube_device);
+            let target_cube: Tensor<CubeWgpuBackend, 2> = target_flat.reshape([n_targets, d]);
+            
+            let sims_cube = cosine_similarity_fused(query_cube, target_cube);
+            
+            // Convert back to WgpuBackend and negate for energy
+            let sims_data: Vec<f32> = sims_cube.into_data().to_vec().expect("sims to vec");
+            let similarities: Tensor<WgpuBackend, 1> = Tensor::from_floats(sims_data.as_slice(), device);
+            similarities.neg()
+        }
 
-        // Cosine similarity via matmul: query [1, d] @ targets^T [d, n_targets] = [1, n_targets]
-        let d = self.sphere_ebm.embedding_dim();
-        let query_2d: Tensor<WgpuBackend, 2> = query_normalized.reshape([1, d as i32]); // [1, d]
-        let similarities_2d = query_2d.matmul(target_normalized.transpose()); // [1, n_targets]
+        #[cfg(not(feature = "fused-kernels"))]
+        {
+            // Normalize query
+            let query_norm = query_embedding.clone().powf_scalar(2.0).sum().sqrt();
+            let query_normalized = query_embedding.clone() / (query_norm + 1e-8);
 
-        // Reshape to 1D: [n_targets]
-        let similarities: Tensor<WgpuBackend, 1> = similarities_2d.reshape([n_targets as i32]);
+            // Normalize target embeddings along dim 1
+            let target_sq = target_embeddings.clone().powf_scalar(2.0);
+            let target_sum: Tensor<WgpuBackend, 2> = target_sq.sum_dim(1); // [n_targets, 1]
+            let target_norms = target_sum.sqrt(); // [n_targets, 1]
+            let target_normalized = target_embeddings / (target_norms.clone() + 1e-8);
 
-        // Energy is negative similarity
-        similarities.neg()
+            // Cosine similarity via matmul: query [1, d] @ targets^T [d, n_targets] = [1, n_targets]
+            let d = self.sphere_ebm.embedding_dim();
+            let query_2d: Tensor<WgpuBackend, 2> = query_normalized.reshape([1, d as i32]); // [1, d]
+            let similarities_2d = query_2d.matmul(target_normalized.transpose()); // [1, n_targets]
+
+            // Reshape to 1D: [n_targets]
+            let similarities: Tensor<WgpuBackend, 1> = similarities_2d.reshape([n_targets as i32]);
+
+            // Energy is negative similarity
+            similarities.neg()
+        }
     }
 
     /// Compute radial energy using batched GPU operations.
@@ -1108,13 +1283,10 @@ impl NavigatorEBM {
             return Tensor::zeros([0], device);
         }
 
-        match &self.entropies {
-            Some(ent) => {
-                // Gather entropies and negate (lower entropy = lower energy)
-                ent.clone().select(0, target_indices.clone()).neg()
-            }
-            None => Tensor::zeros([n_targets], device),
-        }
+        self.entropies.as_ref().map_or_else(
+            || Tensor::zeros([n_targets], device),
+            |ent| ent.clone().select(0, target_indices.clone()).neg(),
+        )
     }
 
     /// Compute total navigation energy using batched GPU operations.
@@ -1188,13 +1360,16 @@ impl NavigatorEBM {
 
     /// Find targets within a cone aperture.
     pub fn targets_in_cone(&self, coords: &SphericalCoords, cone: &ConeConfig) -> Vec<usize> {
-        let theta_data: Vec<f32> = coords
-            .theta
-            .clone()
-            .into_data()
-            .to_vec()
-            .expect("theta to vec");
-        let phi_data: Vec<f32> = coords.phi.clone().into_data().to_vec().expect("phi to vec");
+        // Batch GPU->CPU transfers (single sync instead of 2)
+        let [theta_tensor_data, phi_tensor_data] = Transaction::default()
+            .register(coords.theta.clone())
+            .register(coords.phi.clone())
+            .execute()
+            .try_into()
+            .expect("Transaction should return 2 tensors");
+
+        let theta_data: Vec<f32> = theta_tensor_data.to_vec().expect("theta to vec");
+        let phi_data: Vec<f32> = phi_tensor_data.to_vec().expect("phi to vec");
 
         let n = theta_data.len();
         let mut targets = Vec::new();
@@ -1205,7 +1380,7 @@ impl NavigatorEBM {
             let dphi = phi_data[i] - cone.center_phi;
 
             // Simple angular distance (could use geodesic for more accuracy)
-            let angular_dist = (dtheta * dtheta + dphi * dphi * theta_data[i].sin().powi(2)).sqrt();
+            let angular_dist = dtheta.mul_add(dtheta, dphi * dphi * theta_data[i].sin().powi(2)).sqrt();
 
             if angular_dist <= cone.aperture {
                 targets.push(i);
@@ -1582,7 +1757,7 @@ impl DifferentiableNavigationResult {
     }
 
     /// Get path length.
-    pub fn path_length(&self) -> usize {
+    pub const fn path_length(&self) -> usize {
         self.path.len()
     }
 }
@@ -1630,17 +1805,17 @@ pub struct MultiConeResult {
 
 impl MultiConeResult {
     /// Get number of cones that contributed to results.
-    pub fn n_cones(&self) -> usize {
+    pub const fn n_cones(&self) -> usize {
         self.cones_spawned
     }
 
     /// Get total number of targets found.
-    pub fn n_targets(&self) -> usize {
+    pub const fn n_targets(&self) -> usize {
         self.target_indices.len()
     }
 
     /// Check if results are empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.target_indices.is_empty()
     }
 
@@ -1728,6 +1903,10 @@ pub struct MultiConeNavigator {
 
     /// Currently active cones.
     pub active_cones: Vec<ConeState>,
+
+    /// Optional harmonic navigator for SH-based cone refinement.
+    /// When enabled, uses spherical harmonic superposition to refine cone centers.
+    pub harmonic: Option<HarmonicNavigator>,
 }
 
 impl MultiConeNavigator {
@@ -1746,12 +1925,13 @@ impl MultiConeNavigator {
     /// let roots = RootsIndex::from_sphere_ebm(&sphere_ebm, roots_config, key, &device);
     /// let multi = MultiConeNavigator::new(navigator, roots, BudgetConfig::dev());
     /// ```
-    pub fn new(navigator: NavigatorEBM, roots: RootsIndex, budget_config: BudgetConfig) -> Self {
+    pub const fn new(navigator: NavigatorEBM, roots: RootsIndex, budget_config: BudgetConfig) -> Self {
         Self {
             navigator,
             roots,
             budget_config,
             active_cones: Vec::new(),
+            harmonic: None,
         }
     }
 
@@ -1844,12 +2024,12 @@ impl MultiConeNavigator {
     }
 
     /// Get number of partitions in ROOTS index.
-    pub fn n_partitions(&self) -> usize {
+    pub const fn n_partitions(&self) -> usize {
         self.roots.n_partitions()
     }
 
     /// Get number of currently active cones.
-    pub fn n_active_cones(&self) -> usize {
+    pub const fn n_active_cones(&self) -> usize {
         self.active_cones.len()
     }
 
@@ -2100,23 +2280,23 @@ impl MultiConeNavigator {
     }
 
     /// Get the navigation weights from the underlying navigator.
-    pub fn weights(&self) -> &NavigationWeights {
+    pub const fn weights(&self) -> &NavigationWeights {
         &self.navigator.weights
     }
 
     /// Set navigation weights.
-    pub fn with_weights(mut self, weights: NavigationWeights) -> Self {
+    pub const fn with_weights(mut self, weights: NavigationWeights) -> Self {
         self.navigator.weights = weights;
         self
     }
 
     /// Get budget configuration.
-    pub fn budget_config(&self) -> &BudgetConfig {
+    pub const fn budget_config(&self) -> &BudgetConfig {
         &self.budget_config
     }
 
     /// Update budget configuration.
-    pub fn with_budget_config(mut self, config: BudgetConfig) -> Self {
+    pub const fn with_budget_config(mut self, config: BudgetConfig) -> Self {
         self.budget_config = config;
         self
     }
@@ -2131,6 +2311,184 @@ impl MultiConeNavigator {
             total_relevance: self.active_cones.iter().map(|c| c.relevance).sum(),
             saturated_cones: self.active_cones.iter().filter(|c| c.is_saturated).count(),
         }
+    }
+
+    /// Enable harmonic navigation with default configuration.
+    ///
+    /// When enabled, cone centers are refined using spherical harmonic
+    /// superposition for smoother, multi-resolution navigation.
+    pub fn with_harmonics(mut self) -> Self {
+        self.harmonic = Some(HarmonicNavigator::new(HarmonicNavigatorConfig::default()));
+        self
+    }
+
+    /// Enable harmonic navigation with custom configuration.
+    pub fn with_harmonic_config(mut self, config: HarmonicNavigatorConfig) -> Self {
+        self.harmonic = Some(HarmonicNavigator::new(config));
+        self
+    }
+
+    /// Check if harmonic navigation is enabled.
+    pub const fn has_harmonics(&self) -> bool {
+        self.harmonic.is_some()
+    }
+
+    /// Refine cone center using harmonic superposition.
+    ///
+    /// Uses the spherical harmonic basis to find optimal cone position
+    /// by computing wave superposition of probe candidates.
+    ///
+    /// # Arguments
+    /// * `query` - Query embedding (used for initial direction)
+    /// * `initial_theta` - Initial colatitude from ROOTS
+    /// * `initial_phi` - Initial azimuth from ROOTS
+    /// * `rng_seed` - Random seed for probe perturbations
+    ///
+    /// # Returns
+    /// Refined (theta, phi, alpha, confidence) tuple
+    pub fn refine_cone_with_harmonics(
+        &self,
+        query: &[f32],
+        initial_theta: f32,
+        initial_phi: f32,
+        rng_seed: u64,
+    ) -> (f32, f32, f32, f32) {
+        match &self.harmonic {
+            Some(harmonic_nav) => {
+                // Convert query to f64 for harmonic navigator
+                let query_f64: Vec<f64> = query.iter().map(|&x| x as f64).collect();
+
+                let result = harmonic_nav.navigate(&query_f64, rng_seed);
+
+                // Blend ROOTS initial with harmonic refinement
+                // Use harmonic confidence to weight the blend
+                let blend = result.confidence as f32;
+                let refined_theta = (1.0 - blend).mul_add(initial_theta, blend * result.theta as f32);
+                let refined_phi = (1.0 - blend).mul_add(initial_phi, blend * result.phi as f32);
+
+                (
+                    refined_theta,
+                    refined_phi,
+                    result.alpha as f32,
+                    result.confidence as f32,
+                )
+            }
+            None => {
+                // No harmonic navigator - return initial values
+                (initial_theta, initial_phi, BASE_CONE_APERTURE, 0.0)
+            }
+        }
+    }
+
+    /// Spawn cones using both ROOTS peaks and harmonic refinement.
+    ///
+    /// This is the integrated method that:
+    /// 1. Gets initial cone positions from ROOTS activation peaks
+    /// 2. Refines each cone center using spherical harmonic superposition
+    /// 3. Adjusts aperture based on harmonic confidence
+    pub fn spawn_cones_with_harmonics(
+        &self,
+        query: &Tensor<WgpuBackend, 1>,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> Vec<ConeState> {
+        // 1. Get base cones from ROOTS
+        let mut cones = self.spawn_cones_from_peaks(query, device);
+
+        if cones.is_empty() || self.harmonic.is_none() {
+            return cones;
+        }
+
+        // 2. Extract query data for harmonic refinement
+        let query_data: Vec<f32> = query.clone().into_data().to_vec().expect("query to vec");
+
+        // 3. Refine each cone with harmonics
+        for (i, cone) in cones.iter_mut().enumerate() {
+            let (refined_theta, refined_phi, refined_alpha, confidence) = self
+                .refine_cone_with_harmonics(
+                    &query_data,
+                    cone.config.center_theta,
+                    cone.config.center_phi,
+                    42 + i as u64, // Deterministic seed per cone
+                );
+
+            // Update cone with refined parameters
+            cone.config.center_theta = refined_theta;
+            cone.config.center_phi = refined_phi;
+
+            // Blend apertures: narrower when harmonic is confident
+            if confidence > 0.5 {
+                cone.config.aperture = cone.config.aperture.min(refined_alpha);
+            }
+
+            // Boost relevance based on harmonic confidence
+            cone.relevance *= confidence.mul_add(0.5, 1.0);
+        }
+
+        cones
+    }
+
+    /// Navigate with harmonic-enhanced cone positioning.
+    ///
+    /// Like `navigate_multi_cone`, but uses spherical harmonic superposition
+    /// to refine cone centers for smoother, more accurate navigation.
+    ///
+    /// # Arguments
+    /// * `query` - Query embedding vector `[D]`
+    /// * `query_radius` - Radial coordinate hint
+    /// * `top_k` - Number of results to return
+    /// * `key` - RNG key
+    /// * `device` - GPU device
+    pub fn navigate_with_harmonics(
+        &mut self,
+        query: Tensor<WgpuBackend, 1>,
+        query_radius: f32,
+        top_k: usize,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> MultiConeResult {
+        // Use harmonic-enhanced cone spawning if enabled
+        self.active_cones = if self.harmonic.is_some() {
+            self.spawn_cones_with_harmonics(&query, device)
+        } else {
+            self.spawn_cones_from_peaks(&query, device)
+        };
+
+        // Handle case where no cones were spawned
+        if self.active_cones.is_empty() {
+            let result = self
+                .navigator
+                .navigate(query, query_radius, key, top_k, device);
+            return MultiConeResult {
+                target_indices: result.target_indices.clone(),
+                target_energies: result.target_energies.clone(),
+                per_cone_results: vec![result],
+                budget_used: 0,
+                cones_spawned: 0,
+            };
+        }
+
+        // Run navigation in each cone
+        let n_cones = self.active_cones.len();
+        let keys = key.split(n_cones);
+
+        let per_cone_results: Vec<NavigationResult> = self
+            .active_cones
+            .iter()
+            .zip(keys)
+            .map(|(cone_state, k)| {
+                self.navigator.navigate_cone(
+                    query.clone(),
+                    query_radius,
+                    &cone_state.config,
+                    k,
+                    top_k,
+                    device,
+                )
+            })
+            .collect();
+
+        // Merge results
+        self.merge_cone_results(&per_cone_results, top_k)
     }
 }
 
@@ -2200,7 +2558,7 @@ mod tests {
 
         // Query with first embedding
         let query: Tensor<WgpuBackend, 1> =
-            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+            embeddings.slice([0..1, 0..d]).reshape([d]);
         let targets = vec![0, 1, 2];
 
         let energy = navigator.semantic_energy(&query, &targets, &device);
@@ -2228,7 +2586,7 @@ mod tests {
         let navigator = NavigatorEBM::new(embeddings.clone(), prominence, None, config, &device);
 
         // Create query from first embedding
-        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
 
         let result = navigator.navigate(query, 50.0, RngKey::new(42), 5, &device);
 
@@ -2308,7 +2666,7 @@ mod tests {
         let coords = navigator.sphere_ebm.optimize(RngKey::new(42), &device);
 
         // Create query
-        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
         let candidates = vec![1, 2, 3, 4, 5];
 
         // Test soft selection
@@ -2593,7 +2951,7 @@ mod tests {
         );
 
         // Create query
-        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
 
         // Run multi-cone navigation
         let result = navigator.navigate_multi_cone(query, 50.0, 5, RngKey::new(123), &device);
@@ -2645,7 +3003,7 @@ mod tests {
             &device,
         );
 
-        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
+        let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d]);
 
         // Run navigation
         let _result = navigator.navigate_multi_cone(query, 50.0, 5, RngKey::new(123), &device);
@@ -2673,7 +3031,7 @@ mod tests {
             for j in 0..d {
                 // Create clusters
                 let cluster = i / 25; // 4 clusters
-                emb_data[i * d + j] = (cluster as f32 * 0.5) + ((i * j) as f32 * 0.01).sin() * 0.1;
+                emb_data[i * d + j] = (cluster as f32).mul_add(0.5, ((i * j) as f32 * 0.01).sin() * 0.1);
             }
         }
         let embeddings_1d: Tensor<WgpuBackend, 1> = Tensor::from_data(emb_data.as_slice(), &device);

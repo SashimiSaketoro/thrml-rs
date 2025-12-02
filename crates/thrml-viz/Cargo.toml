@@ -1,0 +1,56 @@
+[package]
+name = "thrml-viz"
+description = "Interactive 3D visualization for THRML sphere embeddings and ROOTS hierarchy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["visualization", "3d", "egui", "wgpu", "embeddings"]
+categories = ["visualization", "graphics"]
+rust-version.workspace = true
+publish = false  # Internal crate
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "visualize"
+path = "examples/visualize.rs"
+
+[dependencies]
+# GUI framework (optional - only for full visualizer)
+eframe = { workspace = true, optional = true }
+
+# GPU rendering (optional - only for full visualizer)
+wgpu = { version = "24", optional = true }
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# IPC - always required
+interprocess = "2.2"
+
+# File watching (optional - only for full visualizer)
+notify = { version = "7.0", optional = true }
+
+# Data loading (optional - only for full visualizer)
+safetensors = { version = "0.4", optional = true }
+ndarray = { version = "0.16", optional = true }
+ndarray-npy = { version = "0.9", optional = true }
+
+# Serialization - always required
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+anyhow = "1.0"
+clap = { workspace = true, optional = true }
+log = "0.4"
+env_logger = { version = "0.11", optional = true }
+
+[features]
+# Full visualizer disabled by default (alpha, has known issues)
+default = ["notify-only"]
+full = ["dep:wgpu", "dep:eframe", "dep:ndarray", "dep:ndarray-npy", "dep:safetensors", "dep:notify", "dep:clap", "dep:env_logger"]
+notify-only = []  # Just the IPC notification types - minimal dependencies for ingestion

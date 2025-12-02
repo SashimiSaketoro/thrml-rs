@@ -53,7 +53,7 @@ fn main() {
     println!("✓ Created IsingEBM\n");
 
     // Create a single block with all nodes (for simplicity)
-    let all_nodes_block = Block::new(nodes.clone()).expect("Failed to create block");
+    let all_nodes_block = Block::new(nodes).expect("Failed to create block");
 
     println!("✓ Created block with {} nodes\n", all_nodes_block.len());
 
@@ -74,7 +74,7 @@ fn main() {
     let init_states = hinton_init(
         key,
         &model,
-        &[all_nodes_block.clone()],
+        std::slice::from_ref(&all_nodes_block),
         &batch_shape,
         &device,
     );
@@ -112,7 +112,7 @@ fn main() {
     );
 
     let state_data: Vec<f32> = sample_state
-        .clone()
+        
         .into_data()
         .to_vec()
         .expect("read state");
@@ -131,7 +131,7 @@ fn main() {
         &device,
     );
 
-    let alt_state_data: Vec<f32> = alt_state.clone().into_data().to_vec().expect("read state");
+    let alt_state_data: Vec<f32> = alt_state.into_data().to_vec().expect("read state");
     println!(
         "Alternating state representation: {:?}\n",
         alt_state_data

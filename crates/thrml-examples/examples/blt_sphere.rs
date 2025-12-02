@@ -75,7 +75,7 @@ fn main() -> Result<()> {
     println!("GPU device initialized");
 
     // Parse scale profile
-    let profile = ScaleProfile::from_str(&args.scale).unwrap_or_else(|| {
+    let profile = args.scale.parse::<ScaleProfile>().unwrap_or_else(|_| {
         eprintln!("Warning: Unknown scale '{}', using 'dev'", args.scale);
         ScaleProfile::Dev
     });
@@ -150,8 +150,8 @@ mod tests {
 
     #[test]
     fn test_scale_profile_parsing() {
-        assert!(ScaleProfile::from_str("dev").is_some());
-        assert!(ScaleProfile::from_str("MEDIUM").is_some());
-        assert!(ScaleProfile::from_str("invalid").is_none());
+        assert!("dev".parse::<ScaleProfile>().is_ok());
+        assert!("MEDIUM".parse::<ScaleProfile>().is_ok());
+        assert!("invalid".parse::<ScaleProfile>().is_err());
     }
 }

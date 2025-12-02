@@ -34,7 +34,7 @@ pub struct SphereLangevinSampler {
 
 impl SphereLangevinSampler {
     /// Create a new sphere Langevin sampler.
-    pub fn new(step_size: f32, temperature: f32, n_steps: usize) -> Self {
+    pub const fn new(step_size: f32, temperature: f32, n_steps: usize) -> Self {
         Self {
             step_size,
             temperature,
@@ -44,12 +44,12 @@ impl SphereLangevinSampler {
     }
 
     /// Create from a SphereConfig.
-    pub fn from_config(config: &SphereConfig) -> Self {
+    pub const fn from_config(config: &SphereConfig) -> Self {
         Self::new(config.step_size, config.temperature, config.n_steps)
     }
 
     /// Set gradient clipping threshold.
-    pub fn with_gradient_clip(mut self, max_grad: f32) -> Self {
+    pub const fn with_gradient_clip(mut self, max_grad: f32) -> Self {
         self.gradient_clip = Some(max_grad);
         self
     }
@@ -77,7 +77,7 @@ impl SphereLangevinSampler {
         let sin_phi = coords.phi.clone().sin();
         let cos_phi = coords.phi.clone().cos();
 
-        let r_hat_x = sin_theta.clone() * cos_phi.clone();
+        let r_hat_x = sin_theta.clone() * cos_phi;
         let r_hat_y = sin_theta * sin_phi;
         let r_hat_z = cos_theta;
 
@@ -169,7 +169,7 @@ pub struct AnnealingSphereLangevinSampler {
 
 impl AnnealingSphereLangevinSampler {
     /// Create with linear annealing.
-    pub fn linear(step_size: f32, temp_init: f32, temp_final: f32, n_steps: usize) -> Self {
+    pub const fn linear(step_size: f32, temp_init: f32, temp_final: f32, n_steps: usize) -> Self {
         Self {
             sampler: SphereLangevinSampler::new(step_size, temp_init, n_steps),
             schedule: AnnealingSchedule::Linear {
@@ -211,6 +211,338 @@ impl AnnealingSphereLangevinSampler {
 // Keep backwards compatibility aliases
 pub type LangevinSampler = SphereLangevinSampler;
 pub type AnnealingLangevinSampler = AnnealingSphereLangevinSampler;
+
+// ============================================================================
+// Polar Boundary Constraints (Phase 3)
+// ============================================================================
+
+// Re-export ZoneEnergyConfig from roots
+pub use crate::roots::PartitionZone;
+pub use crate::roots::ZoneEnergyConfig;
+
+/// Zone targeting configuration for forced placement.
+///
+/// When set, embeddings are pulled toward the target zone during optimization.
+/// The translucency controls how much cross-zone similarity can influence placement.
+#[derive(Clone, Copy, Debug)]
+pub struct ZoneTargeting {
+    /// Target zone for this ingest
+    pub target: PartitionZone,
+    /// Attraction strength toward target zone (default: 2.0)
+    pub attraction_strength: f32,
+    /// Translucency: how much cross-zone similarity matters (0.0 = opaque, 1.0 = transparent)
+    pub translucency: f32,
+}
+
+impl ZoneTargeting {
+    /// Create targeting for instruction zone (north pole).
+    pub const fn instruction() -> Self {
+        Self {
+            target: PartitionZone::Instruction,
+            attraction_strength: 2.0,
+            translucency: 0.3,
+        }
+    }
+
+    /// Create targeting for content zone (torus).
+    pub const fn content() -> Self {
+        Self {
+            target: PartitionZone::Content,
+            attraction_strength: 2.0,
+            translucency: 0.3,
+        }
+    }
+
+    /// Create targeting for QA pairs zone (south pole).
+    pub const fn qa_pairs() -> Self {
+        Self {
+            target: PartitionZone::QAPairs,
+            attraction_strength: 2.0,
+            translucency: 0.3,
+        }
+    }
+
+    /// Parse from string (for CLI).
+    pub fn from_str(s: &str, translucency: f32) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "instruction" | "north" => Some(Self {
+                target: PartitionZone::Instruction,
+                attraction_strength: 2.0,
+                translucency,
+            }),
+            "content" | "torus" => Some(Self {
+                target: PartitionZone::Content,
+                attraction_strength: 2.0,
+                translucency,
+            }),
+            "qa" | "qa_pairs" | "south" => Some(Self {
+                target: PartitionZone::QAPairs,
+                attraction_strength: 2.0,
+                translucency,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Set attraction strength.
+    pub const fn with_strength(mut self, strength: f32) -> Self {
+        self.attraction_strength = strength;
+        self
+    }
+
+    /// Set translucency.
+    pub const fn with_translucency(mut self, translucency: f32) -> Self {
+        self.translucency = translucency.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Get target θ range for this zone.
+    /// Returns (θ_min, θ_max) in radians.
+    pub fn target_theta_range(&self, pole_angle: f32) -> (f32, f32) {
+        use std::f32::consts::PI;
+        match self.target {
+            PartitionZone::Instruction => (0.0, pole_angle),
+            PartitionZone::Content => (pole_angle, PI - pole_angle),
+            PartitionZone::QAPairs => (PI - pole_angle, PI),
+        }
+    }
+
+    /// Get target θ center for this zone.
+    pub fn target_theta_center(&self, pole_angle: f32) -> f32 {
+        use std::f32::consts::PI;
+        match self.target {
+            PartitionZone::Instruction => pole_angle / 2.0, // Center of north cap
+            PartitionZone::Content => PI / 2.0,             // Equator
+            PartitionZone::QAPairs => PI - pole_angle / 2.0, // Center of south cap
+        }
+    }
+}
+
+/// Configuration for polar boundary constraints.
+///
+/// These constraints ensure content embeddings stay within the equatorial torus
+/// and don't drift into the polar instruction/QA zones during optimization.
+///
+/// ## Zone Architecture
+/// ```text
+///      N (θ < 15°)    ← INSTRUCTION zone (behavioral anchors)
+///      │
+///  ════════════════   ← CONTENT zone (knowledge torus)
+///      │
+///      S (θ > 165°)   ← QA_PAIRS zone (fine-tuning examples)
+/// ```
+#[derive(Clone, Debug)]
+pub struct PolarConstraintConfig {
+    /// Exclusion angle from poles (radians). Default: π/12 (15°)
+    /// Content is clamped to: pole_angle <= θ <= π - pole_angle
+    pub pole_angle: f32,
+    /// Whether to apply soft (gradient-based) or hard (clamp) constraint
+    pub soft_constraint: bool,
+    /// Repulsion strength for soft constraint (force away from poles)
+    pub repulsion_strength: f32,
+    /// Zone-specific energy weights for regional energy loss
+    pub zone_energy: ZoneEnergyConfig,
+    /// Optional zone targeting for forced placement
+    pub zone_targeting: Option<ZoneTargeting>,
+}
+
+impl Default for PolarConstraintConfig {
+    fn default() -> Self {
+        Self {
+            pole_angle: std::f32::consts::PI / 12.0, // 15°
+            soft_constraint: false,                  // Default to hard clamp
+            repulsion_strength: 1.0,
+            zone_energy: ZoneEnergyConfig::default(),
+            zone_targeting: None, // No forced targeting by default
+        }
+    }
+}
+
+impl PolarConstraintConfig {
+    /// Create with custom pole angle (in radians).
+    pub fn with_angle(angle: f32) -> Self {
+        Self {
+            pole_angle: angle,
+            ..Default::default()
+        }
+    }
+
+    /// Create with custom pole angle in degrees.
+    pub fn with_angle_degrees(degrees: f32) -> Self {
+        Self::with_angle(degrees.to_radians())
+    }
+
+    /// Use soft constraint (gradient repulsion from poles).
+    pub const fn soft(mut self, strength: f32) -> Self {
+        self.soft_constraint = true;
+        self.repulsion_strength = strength;
+        self
+    }
+
+    /// Set zone energy configuration.
+    pub const fn with_zone_energy(mut self, config: ZoneEnergyConfig) -> Self {
+        self.zone_energy = config;
+        self
+    }
+
+    /// Set instruction zone energy weight.
+    pub const fn with_instruction_energy(mut self, weight: f32) -> Self {
+        self.zone_energy.instruction_weight = weight;
+        self
+    }
+
+    /// Set QA pairs zone energy weight.
+    pub const fn with_qa_energy(mut self, weight: f32) -> Self {
+        self.zone_energy.qa_pairs_weight = weight;
+        self
+    }
+
+    /// Set zone targeting for forced placement.
+    pub const fn with_zone_targeting(mut self, targeting: ZoneTargeting) -> Self {
+        self.zone_targeting = Some(targeting);
+        self
+    }
+
+    /// Set zone targeting from string (for CLI).
+    pub fn with_zone_targeting_str(mut self, zone: &str, translucency: f32) -> Self {
+        if let Some(targeting) = ZoneTargeting::from_str(zone, translucency) {
+            self.zone_targeting = Some(targeting);
+        }
+        self
+    }
+}
+
+/// Clamps theta values to stay within the content torus (hard constraint).
+///
+/// Points with θ < pole_angle are pushed to θ = pole_angle.
+/// Points with θ > π - pole_angle are pushed to θ = π - pole_angle.
+pub fn clamp_to_content_torus(coords: SphericalCoords, pole_angle: f32) -> SphericalCoords {
+    use std::f32::consts::PI;
+
+    let theta_min = pole_angle;
+    let theta_max = PI - pole_angle;
+
+    let theta_clamped = coords.theta.clamp(theta_min, theta_max);
+
+    SphericalCoords {
+        r: coords.r,
+        theta: theta_clamped,
+        phi: coords.phi,
+    }
+}
+
+/// Clamps theta values to stay within a target zone (for forced placement).
+///
+/// When zone targeting is set, points are clamped to the target zone's θ range.
+/// Without targeting, defaults to content torus clamping.
+pub fn clamp_to_zone(coords: SphericalCoords, config: &PolarConstraintConfig) -> SphericalCoords {
+    match &config.zone_targeting {
+        Some(targeting) => {
+            let (theta_min, theta_max) = targeting.target_theta_range(config.pole_angle);
+            let theta_clamped = coords.theta.clamp(theta_min, theta_max);
+            SphericalCoords {
+                r: coords.r,
+                theta: theta_clamped,
+                phi: coords.phi,
+            }
+        }
+        None => clamp_to_content_torus(coords, config.pole_angle),
+    }
+}
+
+/// Computes a repulsion force away from poles (soft constraint).
+///
+/// Returns a force tensor `[N]` in the theta direction:
+/// - Positive force (toward equator) when near north pole
+/// - Negative force (toward equator) when near south pole
+/// - Zero force when in content zone
+pub fn polar_repulsion_force(
+    coords: &SphericalCoords,
+    config: &PolarConstraintConfig,
+) -> Tensor<WgpuBackend, 1> {
+    use std::f32::consts::PI;
+
+    let theta = &coords.theta;
+    let _n = coords.len();
+    let _device = theta.device();
+
+    let theta_min = config.pole_angle;
+    let theta_max = PI - config.pole_angle;
+
+    // Distance into north pole zone (positive if in zone)
+    let north_penetration = (theta_min - theta.clone()).clamp(0.0, theta_min);
+
+    // Distance into south pole zone (positive if in zone)
+    let south_penetration = (theta.clone() - theta_max).clamp(0.0, theta_min);
+
+    // Force: positive pushes toward equator (larger θ from north, smaller θ from south)
+    let north_force = north_penetration * config.repulsion_strength;
+    let south_force = south_penetration * (-config.repulsion_strength);
+
+    north_force + south_force
+}
+
+/// Sphere Langevin sampler with polar boundary constraints.
+///
+/// This sampler applies constraints to keep content embeddings within
+/// the equatorial torus, reserving the poles for instruction embeddings.
+pub struct PolarConstrainedLangevinSampler {
+    /// Base sampler
+    pub sampler: SphereLangevinSampler,
+    /// Polar constraint configuration
+    pub polar_config: PolarConstraintConfig,
+}
+
+impl PolarConstrainedLangevinSampler {
+    /// Create a new polar-constrained sampler.
+    pub const fn new(sampler: SphereLangevinSampler, polar_config: PolarConstraintConfig) -> Self {
+        Self {
+            sampler,
+            polar_config,
+        }
+    }
+
+    /// Create from SphereConfig with default polar constraints.
+    pub fn from_config(config: &SphereConfig) -> Self {
+        Self {
+            sampler: SphereLangevinSampler::from_config(config),
+            polar_config: PolarConstraintConfig::default(),
+        }
+    }
+
+    /// Set zone targeting.
+    pub const fn with_zone_targeting(mut self, targeting: ZoneTargeting) -> Self {
+        self.polar_config.zone_targeting = Some(targeting);
+        self
+    }
+
+    /// Run with polar constraints (respects zone targeting if set).
+    pub fn run<H: SphereHamiltonian>(
+        &self,
+        hamiltonian: &H,
+        init_coords: SphericalCoords,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> SphericalCoords {
+        let keys = key.split(self.sampler.n_steps);
+        let mut coords = init_coords;
+
+        // Apply initial clamp (respects zone targeting)
+        coords = clamp_to_zone(coords, &self.polar_config);
+
+        for step_key in keys {
+            coords = self.sampler.step(hamiltonian, &coords, step_key, device);
+
+            // Apply polar constraint after each step
+            if !self.polar_config.soft_constraint {
+                coords = clamp_to_zone(coords, &self.polar_config);
+            }
+            // Note: soft constraint would be applied as additional force in step()
+        }
+
+        coords
+    }
+}
 
 #[cfg(test)]
 mod tests {

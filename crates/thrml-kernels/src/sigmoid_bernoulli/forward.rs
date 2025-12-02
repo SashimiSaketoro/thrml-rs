@@ -11,7 +11,7 @@ use burn_cubecl::{
     FloatElement, IntElement,
 };
 use cubecl::{CubeCount, CubeDim};
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::CubeWgpuBackend;
 
 /// Launch the sigmoid-Bernoulli kernel on any CubeBackend.
 ///
@@ -80,7 +80,7 @@ where
 /// Execute the fused sigmoid-Bernoulli sampling kernel.
 ///
 /// This is a convenience function that works with high-level Tensor types
-/// on the default WgpuBackend.
+/// on the raw CubeWgpuBackend (not Fusion).
 ///
 /// # Arguments
 /// * `gamma` - Gibbs parameter `[n_nodes]`
@@ -89,9 +89,9 @@ where
 /// # Returns
 /// Spin samples `[n_nodes]` as floats (0.0 or 1.0)
 pub fn sigmoid_bernoulli_fused(
-    gamma: Tensor<WgpuBackend, 1>,
-    uniform: Tensor<WgpuBackend, 1>,
-) -> Tensor<WgpuBackend, 1> {
+    gamma: Tensor<CubeWgpuBackend, 1>,
+    uniform: Tensor<CubeWgpuBackend, 1>,
+) -> Tensor<CubeWgpuBackend, 1> {
     use burn::tensor::TensorPrimitive;
     use cubecl::wgpu::WgpuRuntime;
 

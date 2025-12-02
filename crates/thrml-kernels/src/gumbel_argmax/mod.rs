@@ -19,13 +19,13 @@ pub use forward::launch_gumbel_argmax;
 mod tests {
     use super::*;
     use burn::tensor::{Distribution, Int, Tensor};
-    use thrml_core::backend::{init_gpu_device, WgpuBackend};
+    use thrml_core::backend::{init_gpu_device, CubeWgpuBackend};
 
     /// Reference implementation for comparison
     fn gumbel_argmax_reference(
-        logits: Tensor<WgpuBackend, 2>,
-        uniform: Tensor<WgpuBackend, 2>,
-    ) -> Tensor<WgpuBackend, 1, Int> {
+        logits: Tensor<CubeWgpuBackend, 2>,
+        uniform: Tensor<CubeWgpuBackend, 2>,
+    ) -> Tensor<CubeWgpuBackend, 1, Int> {
         // Gumbel noise: -log(-log(u))
         let gumbel = -(-(uniform.log())).log();
         let perturbed = logits + gumbel;
@@ -37,9 +37,9 @@ mod tests {
         let device = init_gpu_device();
 
         // Create test inputs
-        let logits: Tensor<WgpuBackend, 2> =
+        let logits: Tensor<CubeWgpuBackend, 2> =
             Tensor::random([100, 10], Distribution::Normal(0.0, 1.0), &device);
-        let uniform: Tensor<WgpuBackend, 2> = Tensor::random(
+        let uniform: Tensor<CubeWgpuBackend, 2> = Tensor::random(
             [100, 10],
             Distribution::Uniform(1e-10, 1.0 - 1e-10),
             &device,

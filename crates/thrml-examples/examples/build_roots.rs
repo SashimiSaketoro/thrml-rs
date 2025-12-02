@@ -131,7 +131,7 @@ fn main() -> Result<()> {
     }
 
     // Parse scale profile
-    let profile = ScaleProfile::from_str(&args.scale).unwrap_or_else(|| {
+    let profile = args.scale.parse::<ScaleProfile>().unwrap_or_else(|_| {
         eprintln!("Warning: Unknown scale '{}', using 'dev'", args.scale);
         ScaleProfile::Dev
     });

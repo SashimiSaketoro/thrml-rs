@@ -7,11 +7,12 @@ members = [
     "crates/thrml-kernels",
     "crates/thrml-examples",
     "crates/thrml-sphere",
+    # thrml-viz excluded - will be standalone tool that reads output files directly
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["sashimisaketoro"]
 license = "MIT OR Apache-2.0"
@@ -21,7 +22,7 @@ documentation = "https://docs.rs/thrml-rs"
 readme = "README.md"
 keywords = ["machine-learning", "probabilistic-graphical-models", "sampling", "gibbs", "gpu"]
 categories = ["science", "simulation", "mathematics"]
-rust-version = "1.89"
+rust-version = "1.87"
 
 [workspace.dependencies]
 # Burn with autotune (runtime kernel selection)

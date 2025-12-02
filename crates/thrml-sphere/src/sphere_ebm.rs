@@ -141,6 +141,26 @@ impl SphereEBM {
         sampler.run(&hamiltonian, init_coords, key, device)
     }
 
+    /// Run sphere optimization from provided initial coordinates.
+    ///
+    /// Use this for incremental optimization where points already have
+    /// positions from density-guided placement or prior batches.
+    ///
+    /// # Arguments
+    /// * `initial` - Pre-computed spherical coordinates
+    /// * `key` - RNG key for reproducibility
+    /// * `device` - GPU device
+    pub fn optimize_from(
+        &self,
+        initial: SphericalCoords,
+        key: RngKey,
+        device: &burn::backend::wgpu::WgpuDevice,
+    ) -> SphericalCoords {
+        let hamiltonian = self.hamiltonian();
+        let sampler = SphereLangevinSampler::from_config(&self.config);
+        sampler.run(&hamiltonian, initial, key, device)
+    }
+
     /// Run sphere optimization with progress logging.
     ///
     /// # Arguments
@@ -171,13 +191,14 @@ impl SphereEBM {
     }
 }
 
-/// Compute ideal radii using r^1.5 capacity law.
+/// Compute ideal radii using shell capacity law.
 ///
 /// Points are ranked by prominence (or weighted prominence if entropy_weighted).
 /// Higher ranked points get smaller radii (closer to core).
 ///
-/// The capacity law: `radius = min_radius + span * (rank / n)^(1/1.5)`
-/// ensures inner shells have more capacity than outer shells.
+/// Uses `SHELL_CAPACITY_EXPONENT` from config (default 2.0 for surface area law).
+/// The formula: `radius = min + span * (rank / n)^(1/EXPONENT)`
+/// ensures shell capacity scales correctly for uniform density on a sphere.
 ///
 /// # Arguments
 ///
@@ -212,7 +233,7 @@ pub fn compute_ideal_radii(
 
     // Get ranking by argsort (CPU operation since Burn lacks argsort)
     let weights_data: Vec<f32> = weights
-        .clone()
+        
         .into_data()
         .to_vec()
         .expect("weights to vec");
@@ -232,14 +253,17 @@ pub fn compute_ideal_radii(
         ranks[idx] = rank;
     }
 
-    // Compute radii using r^1.5 capacity law
-    // capacity(r) ∝ r^1.5, so we invert: r = (capacity)^(1/1.5)
+    // Compute radii using shell capacity law from config
+    // Shell capacity ∝ r^EXPONENT, so we invert: r = normalized^(1/EXPONENT)
+    // Default EXPONENT=2.0 gives surface area law (uniform density)
+    use crate::config::SHELL_CAPACITY_EXPONENT;
     let radius_span = (max_radius - min_radius).max(1.0);
+    let inv_exponent = 1.0 / SHELL_CAPACITY_EXPONENT;
     let radii: Vec<f32> = ranks
         .iter()
         .map(|&rank| {
             let normalized = (rank as f32 + 0.5) / n as f32;
-            min_radius + radius_span * normalized.powf(1.0 / 1.5)
+            min_radius + radius_span * normalized.powf(inv_exponent)
         })
         .collect();
 
@@ -273,7 +297,7 @@ pub fn compute_ideal_radii_linear(
         .map(|&p| {
             let normalized = (p - prom_min) / prom_range;
             // Higher prominence = smaller radius
-            max_radius - radius_span * normalized
+            radius_span.mul_add(-normalized, max_radius)
         })
         .collect();
 

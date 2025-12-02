@@ -43,7 +43,7 @@ fn test_ising_energy() {
     //        = 0.8
     let state: Tensor<WgpuBackend, 1> =
         Tensor::from_data(vec![1.0f32, 0.0, 1.0].as_slice(), &device);
-    let blocks = vec![Block::new(nodes.clone()).expect("create block")];
+    let blocks = vec![Block::new(nodes).expect("create block")];
 
     let energy = model.energy(&[state], &blocks, &device);
     let energy_val: Vec<f32> = energy.into_data().to_vec().expect("read energy");
@@ -71,7 +71,7 @@ fn test_hinton_init() {
     let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);
 
     let key = RngKey::new(42);
-    let blocks = vec![Block::new(nodes.clone()).expect("create block")];
+    let blocks = vec![Block::new(nodes).expect("create block")];
 
     let init_state = hinton_init(key, &model, &blocks, &[], &device);
 
@@ -152,7 +152,7 @@ fn test_ising_energy_batched() {
     let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![0.5f32, -0.5].as_slice(), &device);
     let beta: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![1.0f32].as_slice(), &device);
 
-    let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);
+    let model = IsingEBM::new(nodes, edges, biases, weights, beta);
 
     // Create batch of 4 different states
     let batch_states: Tensor<WgpuBackend, 2> = Tensor::from_data(
@@ -198,7 +198,7 @@ fn test_ising_energy_batched_vs_single() {
     let beta: Tensor<WgpuBackend, 1> = Tensor::from_data(vec![1.0f32].as_slice(), &device);
 
     let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);
-    let blocks = vec![Block::new(nodes.clone()).unwrap()];
+    let blocks = vec![Block::new(nodes).unwrap()];
 
     // Test state
     let state: Tensor<WgpuBackend, 1> =

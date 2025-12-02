@@ -31,17 +31,20 @@ static NODE_COUNTER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
 
 impl Node {
     pub fn new(node_type: NodeType) -> Self {
-        let mut counter = NODE_COUNTER.lock().unwrap();
-        let id = *counter;
-        *counter += 1;
-        Node { id, node_type }
+        let id = {
+            let mut counter = NODE_COUNTER.lock().unwrap();
+            let id = *counter;
+            *counter += 1;
+            id
+        }; // MutexGuard dropped here
+        Self { id, node_type }
     }
 
-    pub fn id(&self) -> usize {
+    pub const fn id(&self) -> usize {
         self.id
     }
 
-    pub fn node_type(&self) -> &NodeType {
+    pub const fn node_type(&self) -> &NodeType {
         &self.node_type
     }
 }
@@ -54,14 +57,14 @@ pub struct TensorSpec {
 }
 
 impl TensorSpec {
-    pub fn for_spin() -> Self {
+    pub const fn for_spin() -> Self {
         Self {
             shape: vec![],
             dtype: DType::Bool,
         }
     }
 
-    pub fn for_categorical(_n_categories: u8) -> Self {
+    pub const fn for_categorical(_n_categories: u8) -> Self {
         Self {
             shape: vec![],
             dtype: DType::U8,
@@ -69,7 +72,7 @@ impl TensorSpec {
     }
 
     /// TensorSpec for continuous float32 variables
-    pub fn for_continuous() -> Self {
+    pub const fn for_continuous() -> Self {
         Self {
             shape: vec![],
             dtype: DType::F32,

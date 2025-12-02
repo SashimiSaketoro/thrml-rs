@@ -43,37 +43,37 @@ impl InteractionData {
     /// Get the leading dimension (number of nodes) for this interaction.
     pub fn n_nodes(&self) -> usize {
         match self {
-            InteractionData::Tensor(t) => t.dims()[0],
-            InteractionData::Linear { weights } => weights.dims()[0],
-            InteractionData::Quadratic { inverse_weights } => inverse_weights.dims()[0],
-            InteractionData::Sphere { ideal_radii, .. } => ideal_radii.dims()[0],
+            Self::Tensor(t) => t.dims()[0],
+            Self::Linear { weights } => weights.dims()[0],
+            Self::Quadratic { inverse_weights } => inverse_weights.dims()[0],
+            Self::Sphere { ideal_radii, .. } => ideal_radii.dims()[0],
         }
     }
 
     /// Check if this is a standard tensor interaction.
-    pub fn is_tensor(&self) -> bool {
-        matches!(self, InteractionData::Tensor(_))
+    pub const fn is_tensor(&self) -> bool {
+        matches!(self, Self::Tensor(_))
     }
 
     /// Check if this is a linear interaction.
-    pub fn is_linear(&self) -> bool {
-        matches!(self, InteractionData::Linear { .. })
+    pub const fn is_linear(&self) -> bool {
+        matches!(self, Self::Linear { .. })
     }
 
     /// Check if this is a quadratic interaction.
-    pub fn is_quadratic(&self) -> bool {
-        matches!(self, InteractionData::Quadratic { .. })
+    pub const fn is_quadratic(&self) -> bool {
+        matches!(self, Self::Quadratic { .. })
     }
 
     /// Check if this is a sphere interaction.
-    pub fn is_sphere(&self) -> bool {
-        matches!(self, InteractionData::Sphere { .. })
+    pub const fn is_sphere(&self) -> bool {
+        matches!(self, Self::Sphere { .. })
     }
 
     /// Get the underlying tensor if this is a Tensor variant.
-    pub fn as_tensor(&self) -> Option<&Tensor<WgpuBackend, 3>> {
+    pub const fn as_tensor(&self) -> Option<&Tensor<WgpuBackend, 3>> {
         match self {
-            InteractionData::Tensor(t) => Some(t),
+            Self::Tensor(t) => Some(t),
             _ => None,
         }
     }
@@ -81,7 +81,7 @@ impl InteractionData {
     /// Get sphere interaction data if this is a Sphere variant.
     pub fn as_sphere(&self) -> Option<(&Tensor<WgpuBackend, 1>, &Tensor<WgpuBackend, 2>, f32)> {
         match self {
-            InteractionData::Sphere {
+            Self::Sphere {
                 ideal_radii,
                 similarity,
                 interaction_radius,
@@ -172,7 +172,7 @@ impl InteractionGroup {
             return Err("n_spin cannot exceed number of tail blocks".to_string());
         }
 
-        Ok(InteractionGroup {
+        Ok(Self {
             head_nodes,
             tail_nodes,
             interaction,

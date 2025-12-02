@@ -78,7 +78,7 @@ fn test_blockspec_creation() {
         TensorSpec::for_categorical(4),
     );
 
-    let spec = BlockSpec::new(blocks.clone(), node_shape_dtypes);
+    let spec = BlockSpec::new(blocks, node_shape_dtypes);
     assert!(spec.is_ok(), "Should create BlockSpec successfully");
 
     let spec = spec.unwrap();

@@ -62,8 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Random biases for each node
     let biases_data: Vec<f32> = (0..nodes.len())
         .map(|i| {
-            let x = ((i as f32 * 0.1).sin() * 0.5) as f32;
-            x
+            
+            (i as f32 * 0.1).sin() * 0.5
         })
         .collect();
     let biases: Tensor<WgpuBackend, 1> = Tensor::from_data(biases_data.as_slice(), &device);
@@ -71,8 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Random weights for each edge
     let weights_data: Vec<f32> = (0..edges.len())
         .map(|i| {
-            let x = ((i as f32 * 0.2).cos() * 0.3) as f32;
-            x
+            
+            (i as f32 * 0.2).cos() * 0.3
         })
         .collect();
     let weights: Tensor<WgpuBackend, 1> = Tensor::from_data(weights_data.as_slice(), &device);
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Create the Ising model
     // ========================================
     println!("\nCreating Ising model...");
-    let model = IsingEBM::new(nodes.clone(), edges.clone(), biases, weights, beta);
+    let model = IsingEBM::new(nodes.clone(), edges, biases, weights, beta);
     let factors = model.get_factors(&device);
     println!("Ising model created with {} factors", factors.len());
 
@@ -219,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &BLUE,
         ))?
         .label("Performance")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], BLUE));
 
     // Draw circles at each data point
     chart.draw_series(
@@ -230,8 +230,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     chart
         .configure_series_labels()
-        .background_style(&WHITE.mix(0.8))
-        .border_style(&BLACK)
+        .background_style(WHITE.mix(0.8))
+        .border_style(BLACK)
         .position(SeriesLabelPosition::UpperLeft)
         .draw()?;
 

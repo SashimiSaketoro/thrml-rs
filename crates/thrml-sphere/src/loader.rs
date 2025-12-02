@@ -562,26 +562,366 @@ pub fn save_coords_npz(coords: &thrml_core::SphericalCoords, path: &Path) -> Res
     Ok(())
 }
 
+// ============================================================================
+// MmapSphereLoader - Memory-mapped loading for web scale
+// ============================================================================
+//
+// For datasets larger than RAM (TB scale), we need to stream data from disk
+// rather than loading everything upfront. This loader uses memory-mapped files
+// to only load the embeddings that are actually needed for navigation.
+
+#[cfg(feature = "mmap")]
+mod mmap_loader {
+    use super::*;
+    use burn::tensor::Tensor;
+    use memmap2::Mmap;
+    use std::fs::File;
+    use thrml_core::backend::WgpuBackend;
+
+    /// Memory-mapped sphere loader for datasets larger than RAM.
+    ///
+    /// Instead of loading all embeddings into memory, this loader uses
+    /// memory-mapped files to stream data on demand. This enables navigation
+    /// on terabyte-scale datasets with minimal RAM usage.
+    ///
+    /// # Architecture
+    ///
+    /// ```text
+    /// ┌─────────────────────────────────────────────────────────────┐
+    /// │ MmapSphereLoader                                            │
+    /// │                                                             │
+    /// │  mmap ──────────▶ [ Header ][ Embeddings ][ Bytes ][ ... ] │
+    /// │                      │          │                          │
+    /// │  gather_embeddings() ─┘──────────┘                         │
+    /// │        ↓                                                   │
+    /// │  Loads only requested indices to GPU                       │
+    /// └─────────────────────────────────────────────────────────────┘
+    /// ```
+    ///
+    /// # Memory Usage
+    ///
+    /// | Dataset Size | RAM Usage | Description |
+    /// |--------------|-----------|-------------|
+    /// | 1M vectors   | ~300MB    | Cone size (100k × 3KB) |
+    /// | 1B vectors   | ~300MB    | Same! Only load active cone |
+    /// | 10B vectors  | ~300MB    | Still the same |
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use thrml_sphere::mmap_loader::MmapSphereLoader;
+    ///
+    /// // Open the file (doesn't load data yet)
+    /// let loader = MmapSphereLoader::open("embeddings.safetensors")?;
+    ///
+    /// // Load only prominence (small, needed for ROOTS)
+    /// let prominence = loader.load_prominence(&device)?;
+    ///
+    /// // Later, gather just the embeddings we need
+    /// let cone_indices = vec![42, 100, 1337, 999999];
+    /// let cone_embeddings = loader.gather_embeddings(&cone_indices, &device)?;
+    /// ```
+    #[derive(Debug)]
+    pub struct MmapSphereLoader {
+        /// Memory-mapped file handle
+        mmap: Mmap,
+
+        /// Total number of embeddings in the file
+        n_embeddings: usize,
+
+        /// Embedding dimension
+        embedding_dim: usize,
+
+        /// Byte offset where embeddings start
+        embeddings_offset: usize,
+
+        /// Byte offset where prominence starts
+        prominence_offset: usize,
+
+        /// Byte offset where raw bytes start (if present)
+        bytes_offset: Option<usize>,
+
+        /// Lengths of each patch's bytes (if present, for byte-level retrieval)
+        patch_lengths: Option<Vec<usize>>,
+
+        /// Cumulative byte offsets for each patch
+        patch_byte_offsets: Option<Vec<usize>>,
+    }
+
+    impl MmapSphereLoader {
+        /// Open a SafeTensors file for memory-mapped access.
+        ///
+        /// This does NOT load any data into RAM - it only parses the header
+        /// to determine where each tensor lives in the file.
+        pub fn open(path: &Path) -> Result<Self> {
+            let file = File::open(path).with_context(|| format!("Failed to open {:?}", path))?;
+
+            // Memory-map the file
+            let mmap = unsafe { Mmap::map(&file)? };
+
+            // Parse SafeTensors header (first 8 bytes = header size)
+            let header_size =
+                u64::from_le_bytes(mmap[0..8].try_into().context("Invalid header size")?) as usize;
+
+            let header_json = std::str::from_utf8(&mmap[8..8 + header_size])
+                .context("Invalid header encoding")?;
+
+            // Parse tensor metadata to find offsets
+            let tensors: serde_json::Value =
+                serde_json::from_str(header_json).context("Invalid header JSON")?;
+
+            let data_start = 8 + header_size;
+
+            // Find embeddings tensor
+            let emb_meta = tensors
+                .get("embeddings")
+                .context("Missing 'embeddings' tensor")?;
+            let emb_shape: Vec<usize> = emb_meta["shape"]
+                .as_array()
+                .context("Invalid embeddings shape")?
+                .iter()
+                .filter_map(|v| v.as_u64().map(|x| x as usize))
+                .collect();
+
+            let n_embeddings = emb_shape[0];
+            let embedding_dim = emb_shape[1];
+
+            let emb_offsets: Vec<usize> = emb_meta["data_offsets"]
+                .as_array()
+                .context("Missing embeddings offsets")?
+                .iter()
+                .filter_map(|v| v.as_u64().map(|x| x as usize))
+                .collect();
+            let embeddings_offset = data_start + emb_offsets[0];
+
+            // Find prominence tensor
+            let prom_meta = tensors
+                .get("prominence")
+                .context("Missing 'prominence' tensor")?;
+            let prom_offsets: Vec<usize> = prom_meta["data_offsets"]
+                .as_array()
+                .context("Missing prominence offsets")?
+                .iter()
+                .filter_map(|v| v.as_u64().map(|x| x as usize))
+                .collect();
+            let prominence_offset = data_start + prom_offsets[0];
+
+            // Check for bytes tensor (BLT v3 format)
+            let (bytes_offset, patch_lengths, patch_byte_offsets) =
+                if let Some(bytes_meta) = tensors.get("bytes") {
+                    let bytes_offs: Vec<usize> = bytes_meta["data_offsets"]
+                        .as_array()
+                        .context("Missing bytes offsets")?
+                        .iter()
+                        .filter_map(|v| v.as_u64().map(|x| x as usize))
+                        .collect();
+
+                    // Load patch_lengths to know where each patch's bytes are
+                    let lengths = if let Some(lengths_meta) = tensors.get("patch_lengths") {
+                        let lengths_offs: Vec<usize> = lengths_meta["data_offsets"]
+                            .as_array()
+                            .context("Missing patch_lengths offsets")?
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|x| x as usize))
+                            .collect();
+
+                        let lengths_start = data_start + lengths_offs[0];
+                        let lengths_end = data_start + lengths_offs[1];
+                        let lengths_bytes = &mmap[lengths_start..lengths_end];
+
+                        // Lengths are stored as i64
+                        let lengths: Vec<usize> = lengths_bytes
+                            .chunks(8)
+                            .map(|chunk| {
+                                let arr: [u8; 8] = chunk.try_into().unwrap_or([0; 8]);
+                                i64::from_le_bytes(arr) as usize
+                            })
+                            .collect();
+
+                        // Compute cumulative offsets
+                        let mut offsets = vec![0usize];
+                        let mut cumsum = 0usize;
+                        for &len in &lengths {
+                            cumsum += len;
+                            offsets.push(cumsum);
+                        }
+
+                        Some((lengths, offsets))
+                    } else {
+                        None
+                    };
+
+                    (
+                        Some(data_start + bytes_offs[0]),
+                        lengths.as_ref().map(|(l, _)| l.clone()),
+                        lengths.map(|(_, o)| o),
+                    )
+                } else {
+                    (None, None, None)
+                };
+
+            Ok(Self {
+                mmap,
+                n_embeddings,
+                embedding_dim,
+                embeddings_offset,
+                prominence_offset,
+                bytes_offset,
+                patch_lengths,
+                patch_byte_offsets,
+            })
+        }
+
+        /// Get the number of embeddings in the file.
+        pub const fn n_embeddings(&self) -> usize {
+            self.n_embeddings
+        }
+
+        /// Get the embedding dimension.
+        pub const fn embedding_dim(&self) -> usize {
+            self.embedding_dim
+        }
+
+        /// Load ALL prominence scores (small, needed for ROOTS construction).
+        ///
+        /// This is typically the only "full load" operation you need.
+        pub fn load_prominence(
+            &self,
+            device: &burn::backend::wgpu::WgpuDevice,
+        ) -> Result<Tensor<WgpuBackend, 1>> {
+            let n = self.n_embeddings;
+            let start = self.prominence_offset;
+            let end = start + n * 4; // f32 = 4 bytes
+
+            let bytes = &self.mmap[start..end];
+            let data: Vec<f32> = bytes
+                .chunks(4)
+                .map(|chunk| {
+                    let arr: [u8; 4] = chunk.try_into().unwrap_or([0; 4]);
+                    f32::from_le_bytes(arr)
+                })
+                .collect();
+
+            Ok(Tensor::from_data(data.as_slice(), device))
+        }
+
+        /// Gather embeddings for specific indices.
+        ///
+        /// This is the key method for web-scale navigation:
+        /// - You identify which cone to explore (via ROOTS)
+        /// - You call `gather_embeddings` with just those indices
+        /// - Only ~100k vectors get loaded, not 1B
+        ///
+        /// # Arguments
+        ///
+        /// * `indices` - Indices of embeddings to load
+        /// * `device` - GPU device
+        ///
+        /// # Returns
+        ///
+        /// Tensor of shape [len(indices), embedding_dim]
+        pub fn gather_embeddings(
+            &self,
+            indices: &[usize],
+            device: &burn::backend::wgpu::WgpuDevice,
+        ) -> Result<Tensor<WgpuBackend, 2>> {
+            let n = indices.len();
+            let d = self.embedding_dim;
+            let bytes_per_embedding = d * 4; // f32 = 4 bytes
+
+            let mut data = Vec::with_capacity(n * d);
+
+            for &idx in indices {
+                if idx >= self.n_embeddings {
+                    anyhow::bail!("Index {} out of bounds (n={})", idx, self.n_embeddings);
+                }
+
+                let start = self.embeddings_offset + idx * bytes_per_embedding;
+                let end = start + bytes_per_embedding;
+                let bytes = &self.mmap[start..end];
+
+                for chunk in bytes.chunks(4) {
+                    let arr: [u8; 4] = chunk.try_into().unwrap_or([0; 4]);
+                    data.push(f32::from_le_bytes(arr));
+                }
+            }
+
+            let tensor: Tensor<WgpuBackend, 1> = Tensor::from_data(data.as_slice(), device);
+            Ok(tensor.reshape([n as i32, d as i32]))
+        }
+
+        /// Gather raw bytes for specific indices.
+        ///
+        /// Only available for BLT v3 format files.
+        pub fn gather_bytes(&self, indices: &[usize]) -> Result<Vec<Vec<u8>>> {
+            let bytes_offset = self
+                .bytes_offset
+                .context("File does not contain raw bytes (not BLT v3 format)")?;
+            let patch_offsets = self
+                .patch_byte_offsets
+                .as_ref()
+                .context("Missing patch byte offsets")?;
+
+            let mut result = Vec::with_capacity(indices.len());
+
+            for &idx in indices {
+                if idx >= self.n_embeddings {
+                    anyhow::bail!("Index {} out of bounds", idx);
+                }
+
+                let start = bytes_offset + patch_offsets[idx];
+                let end = bytes_offset + patch_offsets[idx + 1];
+                result.push(self.mmap[start..end].to_vec());
+            }
+
+            Ok(result)
+        }
+
+        /// Check if raw bytes are available.
+        pub const fn has_bytes(&self) -> bool {
+            self.bytes_offset.is_some()
+        }
+
+        /// Get patch lengths (bytes per patch).
+        ///
+        /// Returns None if the file doesn't contain raw bytes.
+        pub fn patch_lengths(&self) -> Option<&[usize]> {
+            self.patch_lengths.as_deref()
+        }
+
+        /// Get the byte length of a specific patch.
+        pub fn patch_length(&self, idx: usize) -> Option<usize> {
+            self.patch_lengths
+                .as_ref()
+                .and_then(|l| l.get(idx).copied())
+        }
+    }
+}
+
+#[cfg(feature = "mmap")]
+pub use mmap_loader::MmapSphereLoader;
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use burn::tensor::Distribution;
-    use std::collections::HashMap;
+    
+    
+    
     use thrml_core::backend::init_gpu_device;
 
     #[test]
     fn test_tensor_conversion_roundtrip() {
-        let device = init_gpu_device();
+        let _device = init_gpu_device();
         let n = 10;
         let d = 5;
 
         // Create test data
         let test_data: Vec<f32> = (0..n * d).map(|i| i as f32).collect();
 
-        // Create safetensors
-        let shape = vec![n, d];
-        let bytes: Vec<u8> = test_data.iter().flat_map(|&f| f.to_le_bytes()).collect();
+        // Create safetensors representation
+        let _shape = [n, d];
+        let _bytes: Vec<u8> = test_data.iter().flat_map(|&f| f.to_le_bytes()).collect();
 
+        // TODO: Complete this test with actual safetensors roundtrip
         // This test verifies the conversion logic works correctly
         // In practice we'd create a real safetensors file
     }

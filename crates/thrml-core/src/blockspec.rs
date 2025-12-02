@@ -56,7 +56,7 @@ impl BlockSpec {
             }
         }
 
-        Ok(BlockSpec {
+        Ok(Self {
             blocks,
             global_sd_order,
             sd_index_map,

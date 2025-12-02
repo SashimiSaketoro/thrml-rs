@@ -14,7 +14,7 @@ use burn_cubecl::{
     FloatElement, IntElement,
 };
 use cubecl::{CubeCount, CubeDim};
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::CubeWgpuBackend;
 
 /// Launch the batch gather kernel on any CubeBackend.
 ///
@@ -230,7 +230,7 @@ fn create_strides_tensor<R: CubeRuntime, I: IntElement>(
 /// Execute the fused batch gather kernel.
 ///
 /// This is a convenience function that works with high-level Tensor types
-/// on the default WgpuBackend.
+/// on the raw CubeWgpuBackend (not Fusion).
 ///
 /// # Arguments
 /// * `weights` - Weight tensor [n_nodes, k, dim]
@@ -241,11 +241,11 @@ fn create_strides_tensor<R: CubeRuntime, I: IntElement>(
 /// # Returns
 /// Gathered values `[batch_size]`
 pub fn batch_gather_fused(
-    weights: Tensor<WgpuBackend, 3>,
-    indices: Tensor<WgpuBackend, 2, Int>,
+    weights: Tensor<CubeWgpuBackend, 3>,
+    indices: Tensor<CubeWgpuBackend, 2, Int>,
     strides: &[usize],
     batch_stride: usize,
-) -> Tensor<WgpuBackend, 1> {
+) -> Tensor<CubeWgpuBackend, 1> {
     use burn::tensor::TensorPrimitive;
     use cubecl::wgpu::WgpuRuntime;
 

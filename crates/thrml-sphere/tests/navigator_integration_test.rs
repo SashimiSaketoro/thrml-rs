@@ -8,7 +8,7 @@ use thrml_core::backend::{init_gpu_device, WgpuBackend};
 use thrml_samplers::RngKey;
 use thrml_sphere::{
     ConeConfig, HypergraphEBM, HypergraphSidecar, NavigationWeights, NavigatorEBM, ScaleProfile,
-    SphereConfig, SphereEBM,
+    SphereConfig,
 };
 
 /// Helper to create a mock hypergraph structure similar to blt-burn's output.
@@ -64,7 +64,7 @@ fn create_mock_hypergraph(n_total: usize) -> (HypergraphSidecar, Vec<f32>) {
     coherence[2] = 0.8;
     coherence[3] = 0.8;
     for i in leaves_start..n_total {
-        coherence[i] = 0.2 + 0.3 * (i as f32 / n_total as f32);
+        coherence[i] = 0.3f32.mul_add(i as f32 / n_total as f32, 0.2);
     }
 
     let sidecar_with_weights = sidecar.with_node_weights(coherence.clone());
@@ -116,7 +116,7 @@ fn test_navigator_with_hypergraph_navigation() {
     // Branches (nodes 1-3) - similar to trunk
     for i in 1..=3 {
         for j in 0..d {
-            embeddings_data[i * d + j] = 0.5 + 0.1 * (i as f32);
+            embeddings_data[i * d + j] = 0.1f32.mul_add(i as f32, 0.5);
         }
     }
 
@@ -144,7 +144,7 @@ fn test_navigator_with_hypergraph_navigation() {
         .with_radial(0.3);
 
     let config = SphereConfig::from(ScaleProfile::Dev).with_steps(15);
-    let navigator = NavigatorEBM::new(embeddings.clone(), prominence, None, config, &device)
+    let navigator = NavigatorEBM::new(embeddings, prominence, None, config, &device)
         .with_hypergraph(hypergraph_ebm)
         .with_weights(weights);
 
@@ -194,7 +194,7 @@ fn test_navigator_cone_with_hypergraph() {
         .with_hypergraph(hypergraph_ebm);
 
     // Create query
-    let query: Tensor<WgpuBackend, 1> = embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+    let query: Tensor<WgpuBackend, 1> = embeddings.slice([0..1, 0..d]).reshape([d as i32]);
 
     // Create a cone
     let cone =
@@ -246,7 +246,7 @@ fn test_hypergraph_spring_energy_affects_navigation() {
         embeddings.clone(),
         prominence.clone(),
         None,
-        config.clone(),
+        config,
         &device,
     )
     .with_weights(weights_no_graph);
@@ -255,10 +255,10 @@ fn test_hypergraph_spring_energy_affects_navigation() {
     let hypergraph_ebm = HypergraphEBM::from_sidecar(&sidecar, 0.1, 0.3, &device);
     let weights_with_graph = NavigationWeights::default().with_graph(1.0);
     let navigator_with_graph = NavigatorEBM::new(
-        embeddings.clone(),
-        prominence.clone(),
+        embeddings,
+        prominence,
         None,
-        config.clone(),
+        config,
         &device,
     )
     .with_hypergraph(hypergraph_ebm)
@@ -308,9 +308,9 @@ fn test_navigation_with_entropy_weighting() {
         .with_entropy(0.5); // Prefer low-entropy targets
 
     let navigator = NavigatorEBM::new(
-        embeddings.clone(),
+        embeddings,
         prominence,
-        Some(entropies.clone()),
+        Some(entropies),
         config,
         &device,
     )

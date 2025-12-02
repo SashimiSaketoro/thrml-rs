@@ -45,8 +45,8 @@ use thrml_core::node::TensorSpec;
 pub struct GaussianSampler;
 
 impl GaussianSampler {
-    pub fn new() -> Self {
-        GaussianSampler
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -127,7 +127,7 @@ impl AbstractConditionalSampler for GaussianSampler {
 
         // Compute variance = 1/precision (avoid division by zero)
         let epsilon = 1e-8;
-        let variance: Tensor<WgpuBackend, 1> = (precision.clone() + epsilon).recip();
+        let variance: Tensor<WgpuBackend, 1> = (precision + epsilon).recip();
 
         // Compute mean = mean_contribution * variance
         let mean: Tensor<WgpuBackend, 1> = mean_contribution * variance.clone();

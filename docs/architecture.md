@@ -183,16 +183,67 @@ Compressed inner-shell index using Ising max-cut partitioning:
 
 ```rust
 pub struct RootsIndex {
-    pub partitions: Vec<Vec<usize>>,      // Point assignments
+    pub partitions: Vec<RootsPartition>,   // Partition data with zones
     pub centroids: Tensor<WgpuBackend, 2>, // [K, D]
     pub config: RootsConfig,
+    pub instruction_config: InstructionConfig,
+    pub north_pole_partition: Option<usize>,
+    pub south_pole_partition: Option<usize>,
 }
 ```
 
 Features:
-- 3000:1 compression ratio
+- Compression ratio scales with hypersphere size
 - Substring coupling for code/text (J_ij = α·cos_sim + β·substring_sim)
 - Activation peak detection for cone spawning
+- **Polar zone classification** (Content, Instruction, QAPairs)
+
+#### Polar Zone Architecture
+
+The sphere is divided into semantic zones based on polar angle θ:
+
+```
+     N (θ < 15°)    ← INSTRUCTION zone (behavioral anchors)
+     │
+ ════════════════   ← CONTENT zone (93% of sphere)
+     │
+     S (θ > 165°)   ← QA_PAIRS zone (fine-tuning examples)
+```
+
+Zone classification:
+
+```rust
+pub enum PartitionZone {
+    Content,      // Torus (15° < θ < 165°)
+    Instruction,  // North pole (θ < pole_angle)
+    QAPairs,      // South pole (θ > π - pole_angle)
+}
+```
+
+Zone energy weighting for Langevin optimization:
+
+```rust
+pub struct ZoneEnergyConfig {
+    pub content_weight: f32,      // 1.0 (normal)
+    pub instruction_weight: f32,  // 0.5 (faster settling)
+    pub qa_pairs_weight: f32,     // 0.5 (faster settling)
+}
+```
+
+Zone targeting for forced placement:
+
+```rust
+pub struct ZoneTargeting {
+    pub target: PartitionZone,
+    pub attraction_strength: f32,
+    pub translucency: f32,  // 0=opaque, 1=transparent
+}
+```
+
+Key functions:
+- `clamp_to_zone()` - Hard constraint to target zone θ range
+- `polar_repulsion_force()` - Soft gradient-based zone enforcement
+- `PolarConstrainedLangevinSampler` - Zone-aware optimization
 
 #### MultiConeNavigator
 
@@ -214,6 +265,49 @@ pub struct MultiConeNavigator {
 3. **Cone spawning** → Allocate budget proportional to peak strength
 4. **Parallel navigation** → Run independent EBM navigation per cone
 5. **Result merging** → Deduplicate and rank by energy
+
+#### HarmonicNavigator (Spherical Harmonics)
+
+Frequency-domain navigation using spherical harmonic superposition for smooth interpolation:
+
+```rust
+pub struct HarmonicNavigator {
+    pub basis: SphericalHarmonicsBasis,  // Precomputed Y_l^m on grid
+    pub band_limit: usize,                // Max frequency (L)
+    pub amplitude_coeffs: Vec<f64>,       // c_lm coefficients
+}
+```
+
+Key types:
+- `SphericalHarmonicsConfig` - band_limit, use_f64 precision
+- `SphericalHarmonicsBasis` - Precomputed basis on Driscoll-Healy grid
+- `HarmonicNavigationResult` - (r, θ, φ, α, score, confidence)
+
+Core functions:
+- `associated_legendre_normalized(l, m, x)` - P_l^m with SH normalization
+- `real_spherical_harmonic(l, m, θ, φ)` - Real Y_l^m basis function
+- `forward_sht(field)` - f(θ,φ) → c_lm coefficients (analysis)
+- `inverse_sht(coeffs)` - c_lm → f(θ,φ) (synthesis)
+- `superposition_field(amplitudes)` - Wave superposition → intensity
+
+Integration with other navigation systems:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Navigation Stack                               │
+│                                                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────────────┐   │
+│  │   ROOTS     │  │  Springs/   │  │  HarmonicNavigator     │   │
+│  │   Index     │  │  Hypergraph │  │  (SH superposition)    │   │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬────────────┘   │
+│         │                │                      │                │
+│         ▼                ▼                      ▼                │
+│  Coarse partition   Structural         Frequency-domain         │
+│  routing            adjacency          smooth interpolation     │
+│                                                                  │
+│                   All three complement each other                │
+│                   in unified energy landscape                    │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

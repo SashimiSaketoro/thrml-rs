@@ -1,6 +1,10 @@
 //! # thrml-observers
 //!
 //! Observation utilities for the THRML probabilistic computing library.
+
+// Clippy pedantic allows - verified needed 2024-12-01
+// (minimal crate - only 36 pedantic warnings, mostly acceptable)
+#![allow(clippy::must_use_candidate)] // getters
 //!
 //! Observers allow you to collect data during sampling without modifying the sampling algorithm.
 //!

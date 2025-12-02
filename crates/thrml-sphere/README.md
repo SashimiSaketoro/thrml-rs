@@ -28,8 +28,11 @@ git clone -b sphere https://github.com/SashimiSaketoro/thrml-rs.git
 
 - **Sphere Optimization**: Place embeddings on a hypersphere using Langevin dynamics
 - **ROOTS Index**: Compressed inner-shell index for coarse-grained navigation
+- **HarmonicNavigator**: Frequency-domain navigation using spherical harmonic superposition
+- **Polar Zones**: Semantic zones (instruction/content/QA) based on polar angle θ
 - **Ising Max-Cut Partitioning**: Similarity-aware partitioning using energy-based models
 - **Substring Coupling**: Structural byte-level relationships enhance partitioning
+- **Fused Kernels**: Optional GPU kernel fusion for cosine similarity and L2 normalize
 - **Hybrid Compute**: Optimized for Apple Silicon unified memory systems
 
 ## Quick Start
@@ -93,6 +96,49 @@ let activations = roots.activate(&query, &device);
 let peaks = roots.detect_peaks(&activations);
 ```
 
+### HarmonicNavigator (Spherical Harmonics)
+
+```rust
+use thrml_sphere::{
+    HarmonicNavigator, SphericalHarmonicsConfig, SphericalHarmonicsBasis
+};
+
+// Create basis with band limit L=32
+let config = SphericalHarmonicsConfig::default().with_band_limit(32);
+let basis = SphericalHarmonicsBasis::new(config);
+
+// Create navigator from ROOTS and basis
+let navigator = HarmonicNavigator::new(&roots, basis);
+
+// Navigate using frequency-domain interpolation
+let result = navigator.navigate(&query_embedding, &device);
+println!("Best position: θ={:.2}, φ={:.2}, score={:.3}", 
+    result.theta, result.phi, result.score);
+```
+
+### Polar Zones
+
+The sphere is divided into semantic zones based on polar angle θ:
+
+```
+     N (θ < 15°)    ← INSTRUCTION zone (behavioral anchors)
+     │
+ ════════════════   ← CONTENT zone (93% of sphere)
+     │
+     S (θ > 165°)   ← QA_PAIRS zone (fine-tuning examples)
+```
+
+```rust
+use thrml_sphere::{PartitionZone, ZoneTargeting};
+
+// Force embedding to instruction zone
+let targeting = ZoneTargeting {
+    target: PartitionZone::Instruction,
+    attraction_strength: 0.8,
+    translucency: 0.3,  // Soft boundary
+};
+```
+
 ## CLI Examples
 
 ### Build ROOTS Index
@@ -114,31 +160,47 @@ cargo run --example build_roots --release -- \
 
 ## Architecture
 
-### ROOTS Layer
+### H-ROOTS Layer (Hierarchical ROOTS)
 
-The ROOTS (inner-shell index) provides 3000:1 compression over full embeddings:
+The H-ROOTS index provides 3000:1 compression with O(log K) routing:
 
 ```
 ┌─────────────────────────────────────────┐
-│  Stage 1: COARSE PARTITION              │
-│  Sphere → K macro-regions via Ising     │
+│  Stage 1: HIERARCHICAL PARTITION        │
+│  Sphere → Binary tree via Ising         │
 │  J_ij = α×cos_sim + β×substring_sim     │
+│                                          │
+│       [root]                             │
+│       /    \                             │
+│   [signpost] [signpost]                  │
+│    /   \      /   \                      │
+│  [P1] [P2]  [P3] [P4]   ← K partitions  │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
-│  Stage 2: ROOTS INDEX                   │
-│  Each partition → centroid + stats      │
-│  Ultra-compact index (~1MB for 1M pts)  │
+│  Stage 2: SEMANTIC EDGES (FREE!)        │
+│  Extract high-sim pairs from Ising      │
+│  → "semantic" edges in hypergraph       │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
-│  Stage 3: CLASSIFIER EBM                │
+│  Stage 3: TREE PERSISTENCE              │
+│  Save tree to SQLite (roots_tree)       │
+│  Mutable - rebuilt after sphere opt     │
+└─────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────┐
+│  Stage 4: CLASSIFIER EBM                │
 │  Learned query → partition routing      │
-│  (NavigatorEBM / MultiConeNavigator)    │
+│  activate_tree() for O(log K) search    │
 └─────────────────────────────────────────┘
 ```
 
-Stage 3 is implemented by `NavigatorEBM` (single cone) and `MultiConeNavigator` (multi-cone search with budget allocation). Index size assumes N=1M embeddings, D=768, K=256 partitions.
+**Key methods**:
+- `RootsIndex::from_sphere_ebm_hierarchical()` - Build H-ROOTS tree
+- `roots.activate_tree(&query, threshold, beam_width)` - O(log K) routing
+- `roots.extract_semantic_edges(0.7)` - Get similarity edges for hypergraph
+- `roots.flatten_tree()` / `unflatten_tree()` - Serialize/deserialize for persistence
 
 ### Hybrid Compute (Apple Silicon)
 
@@ -155,9 +217,10 @@ On unified memory systems, precision-sensitive operations run on CPU while bulk 
 
 | Module | Description |
 |--------|-------------|
-| `roots` | ROOTS index and Ising max-cut partitioning |
+| `roots` | H-ROOTS index, Ising max-cut partitioning, `FlatTreeNode` serialization |
 | `compute` | Hybrid CPU/GPU backend and substring similarity |
 | `loader` | SafeTensors file loading (BLT v3 format) |
+| `hypergraph_loader` | Load hypergraph from SQLite with edge type filtering |
 | `sphere_ebm` | Main sphere optimization model |
 | `hamiltonian` | Water-filling energy function |
 | `langevin` | Sphere-specific Langevin sampler |

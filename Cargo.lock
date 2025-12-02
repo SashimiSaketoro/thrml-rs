@@ -172,8 +172,18 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
 dependencies = [
+ "bincode_derive",
  "serde",
  "unty",
+]
+
+[[package]]
+name = "bincode_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
+dependencies = [
+ "virtue",
 ]
 
 [[package]]
@@ -1682,6 +1692,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2099,6 +2121,15 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+
+[[package]]
+name = "hashlink"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
+dependencies = [
+ "hashbrown 0.15.5",
+]
 
 [[package]]
 name = "heck"
@@ -2554,6 +2585,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsqlite3-sys"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2650,6 +2692,15 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+
+[[package]]
+name = "memmap2"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "744133e4a0e0a658e1374cf3bf8e415c4052a15a111acd372764c55b4177d490"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "metal"
@@ -3568,6 +3619,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusqlite"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f"
+dependencies = [
+ "bitflags 2.10.0",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4018,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cubecl",
@@ -4027,6 +4092,7 @@ dependencies = [
  "burn-tensor",
  "burn-wgpu",
  "clap",
+ "cubecl",
  "directories",
  "indexmap",
  "num_cpus",
@@ -4040,7 +4106,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-examples"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "burn",
@@ -4051,7 +4117,6 @@ dependencies = [
  "petgraph 0.8.3",
  "plotters",
  "rand 0.8.5",
- "safetensors",
  "thrml-core",
  "thrml-models",
  "thrml-samplers",
@@ -4060,7 +4125,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-kernels"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cubecl",
@@ -4071,7 +4136,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-models"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cuda",
@@ -4089,7 +4154,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-observers"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-tensor",
@@ -4099,7 +4164,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-samplers"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cuda",
@@ -4117,18 +4182,20 @@ dependencies = [
 
 [[package]]
 name = "thrml-sphere"
-version = "0.0.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "burn",
- "burn-wgpu",
  "bytemuck",
+ "memmap2",
  "ndarray",
  "ndarray-npy",
- "num_cpus",
- "ordered-float 4.6.0",
  "rand 0.8.5",
+ "rusqlite",
  "safetensors",
+ "serde",
+ "serde_json",
  "tempfile",
  "thrml-core",
  "thrml-kernels",
@@ -4578,10 +4645,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtue"
+version = "0.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "void"

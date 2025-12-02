@@ -76,7 +76,7 @@ pub fn categorical_sample(
     #[cfg(feature = "fused-kernels")]
     {
         // gumbel_argmax_fused returns IntTensor, convert to float for API consistency
-        return gumbel_argmax_fused(logits, uniform).float();
+        gumbel_argmax_fused(logits, uniform).float()
     }
 
     // Default implementation: separate operations
@@ -106,8 +106,8 @@ pub struct SoftmaxConditional {
 }
 
 impl SoftmaxConditional {
-    pub fn new(n_categories: usize) -> Self {
-        SoftmaxConditional { n_categories }
+    pub const fn new(n_categories: usize) -> Self {
+        Self { n_categories }
     }
 }
 
@@ -233,8 +233,8 @@ pub struct CategoricalGibbsConditional {
 }
 
 impl CategoricalGibbsConditional {
-    pub fn new(n_categories: usize, n_spin: usize) -> Self {
-        CategoricalGibbsConditional {
+    pub const fn new(n_categories: usize, n_spin: usize) -> Self {
+        Self {
             n_categories,
             n_spin,
         }
@@ -476,7 +476,26 @@ impl CategoricalGibbsConditional {
         wgpu_device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 2> {
         use burn::tensor::Tensor as BurnTensor;
-        use thrml_core::backend::{init_cuda_device, CudaBackend};
+        use thrml_core::backend::{init_cuda_device, CudaBackend, CudaDevice};
+
+        // Helper to create CUDA f64 tensor with explicit dimensions
+        fn cuda_tensor_2d(
+            data: &[f64],
+            shape: [usize; 2],
+            device: &CudaDevice,
+        ) -> BurnTensor<CudaBackend, 2> {
+            let flat: BurnTensor<CudaBackend, 1> = BurnTensor::from_floats(data, device);
+            flat.reshape([shape[0] as i32, shape[1] as i32])
+        }
+
+        fn cuda_tensor_3d(
+            data: &[f64],
+            shape: [usize; 3],
+            device: &CudaDevice,
+        ) -> BurnTensor<CudaBackend, 3> {
+            let flat: BurnTensor<CudaBackend, 1> = BurnTensor::from_floats(data, device);
+            flat.reshape([shape[0] as i32, shape[1] as i32, shape[2] as i32])
+        }
 
         let n_nodes = output_spec.shape[0];
         let n_cats = self.n_categories;
@@ -504,9 +523,11 @@ impl CategoricalGibbsConditional {
                     let tensor_f64: Vec<f64> = tensor_data.iter().map(|&x| x as f64).collect();
                     let active_f64: Vec<f64> = active_data.iter().map(|&x| x as f64).collect();
 
-                    let active_cuda: BurnTensor<CudaBackend, 2> =
-                        BurnTensor::from_floats(active_f64.as_slice(), &cuda_device)
-                            .reshape([n_nodes as i32, n_interactions as i32]);
+                    let active_cuda = cuda_tensor_2d(
+                        &active_f64,
+                        [n_nodes, n_interactions],
+                        &cuda_device,
+                    );
 
                     // Split states
                     let (states_spin, states_cat) = split_states(states, n_spin);
@@ -521,11 +542,11 @@ impl CategoricalGibbsConditional {
 
                     // Handle weights and categorical indexing
                     let weights_indexed: BurnTensor<CudaBackend, 3> = if states_cat.is_empty() {
-                        BurnTensor::from_floats(tensor_f64.as_slice(), &cuda_device).reshape([
-                            n_nodes as i32,
-                            n_interactions as i32,
-                            n_cats as i32,
-                        ])
+                        cuda_tensor_3d(
+                            &tensor_f64,
+                            [n_nodes, n_interactions, n_cats],
+                            &cuda_device,
+                        )
                     } else {
                         // Simplified: for categorical neighbors, use CPU f64 path for correctness
                         // Full gather implementation would be complex
@@ -763,7 +784,7 @@ fn compute_spin_product_cpu_f64(
 
     // Initialize with first state
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
-    let mut result: Vec<f64> = first_data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
+    let mut result: Vec<f64> = first_data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
 
     // Pad if needed
     result.resize(total, 1.0);
@@ -773,7 +794,7 @@ fn compute_spin_product_cpu_f64(
         let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
         for (i, &s) in data.iter().enumerate() {
             if i < result.len() {
-                result[i] *= 2.0 * (s as f64) - 1.0;
+                result[i] *= 2.0f64.mul_add(s as f64, -1.0);
             }
         }
     }
@@ -792,24 +813,30 @@ fn compute_spin_product_cuda_f64(
     use burn::tensor::Tensor as BurnTensor;
     use thrml_core::backend::CudaBackend;
 
+    // Helper with explicit type annotation
+    fn cuda_tensor_2d(
+        data: &[f64],
+        shape: [usize; 2],
+        device: &burn::backend::cuda::CudaDevice,
+    ) -> BurnTensor<CudaBackend, 2> {
+        let flat: BurnTensor<CudaBackend, 1> = BurnTensor::from_floats(data, device);
+        flat.reshape([shape[0] as i32, shape[1] as i32])
+    }
+
     if spin_vals.is_empty() {
         return BurnTensor::<CudaBackend, 2>::ones([n_nodes, n_interactions], cuda_device);
     }
 
     // Convert first state to CUDA f64
     let first_data: Vec<f32> = spin_vals[0].clone().into_data().to_vec().unwrap();
-    let first_f64: Vec<f64> = first_data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
-    let mut result: BurnTensor<CudaBackend, 2> =
-        BurnTensor::from_floats(first_f64.as_slice(), cuda_device)
-            .reshape([n_nodes as i32, n_interactions as i32]);
+    let first_f64: Vec<f64> = first_data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
+    let mut result = cuda_tensor_2d(&first_f64, [n_nodes, n_interactions], cuda_device);
 
     // Multiply remaining states
     for state in spin_vals.iter().skip(1) {
         let data: Vec<f32> = state.clone().into_data().to_vec().unwrap();
-        let data_f64: Vec<f64> = data.iter().map(|&s| 2.0 * (s as f64) - 1.0).collect();
-        let state_cuda: BurnTensor<CudaBackend, 2> =
-            BurnTensor::from_floats(data_f64.as_slice(), cuda_device)
-                .reshape([n_nodes as i32, n_interactions as i32]);
+        let data_f64: Vec<f64> = data.iter().map(|&s| 2.0f64.mul_add(s as f64, -1.0)).collect();
+        let state_cuda = cuda_tensor_2d(&data_f64, [n_nodes, n_interactions], cuda_device);
         result = result * state_cuda;
     }
 

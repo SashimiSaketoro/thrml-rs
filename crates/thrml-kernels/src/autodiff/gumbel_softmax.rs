@@ -100,7 +100,7 @@ pub struct TemperatureSchedule {
 
 impl Default for TemperatureSchedule {
     fn default() -> Self {
-        TemperatureSchedule {
+        Self {
             initial: 1.0,
             minimum: 0.1,
             decay_rate: 0.001,
@@ -109,8 +109,8 @@ impl Default for TemperatureSchedule {
 }
 
 impl TemperatureSchedule {
-    pub fn new(initial: f32, minimum: f32, decay_rate: f32) -> Self {
-        TemperatureSchedule {
+    pub const fn new(initial: f32, minimum: f32, decay_rate: f32) -> Self {
+        Self {
             initial,
             minimum,
             decay_rate,

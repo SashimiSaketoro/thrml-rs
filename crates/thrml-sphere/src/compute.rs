@@ -218,7 +218,7 @@ pub mod substring {
         /// # Arguments
         ///
         /// * `len` - Minimum length in bytes.
-        pub fn with_min_length(mut self, len: usize) -> Self {
+        pub const fn with_min_length(mut self, len: usize) -> Self {
             self.min_length = len;
             self
         }
@@ -231,7 +231,7 @@ pub mod substring {
         /// # Arguments
         ///
         /// * `len` - Maximum length in bytes.
-        pub fn with_max_length(mut self, len: usize) -> Self {
+        pub const fn with_max_length(mut self, len: usize) -> Self {
             self.max_length = len;
             self
         }
@@ -290,7 +290,7 @@ pub mod substring {
         ///
         /// Given hash of `bytes[i..i+n]`, computes hash of `bytes[i+1..i+n+1]`
         /// by removing `old_byte` (at position i) and adding `new_byte` (at position i+n).
-        pub fn roll(&mut self, old_byte: u8, new_byte: u8) {
+        pub const fn roll(&mut self, old_byte: u8, new_byte: u8) {
             // Current hash = old_byte * B^(n-1) + middle_bits + last_byte
             // We want: middle_bits * B + new_byte
             //
@@ -310,7 +310,7 @@ pub mod substring {
         }
 
         /// Get current hash value
-        pub fn value(&self) -> u64 {
+        pub const fn value(&self) -> u64 {
             self.hash
         }
     }
@@ -441,7 +441,7 @@ pub mod substring {
         }
 
         let substring_sim = compute_similarity(bytes_a, bytes_b, config);
-        config.alpha * embedding_sim + config.beta * substring_sim
+        config.alpha.mul_add(embedding_sim, config.beta * substring_sim)
     }
 
     #[cfg(test)]
@@ -520,7 +520,7 @@ pub mod substring {
             let combined = compute_combined_coupling(emb_sim, a, b, &config);
 
             // Should be between pure embedding and combined
-            assert!(combined >= 0.0 && combined <= 1.0);
+            assert!((0.0..=1.0).contains(&combined));
             println!("Combined coupling: {}", combined);
         }
     }
@@ -586,7 +586,7 @@ pub mod cpu_ising {
                         .map(|&x| (x as f64).powi(2))
                         .sum::<f64>()
                         .sqrt();
-                    let sim = dot / (norm_i * norm_j + 1e-10);
+                    let sim = dot / norm_i.mul_add(norm_j, 1e-10);
 
                     if sim.abs() > 0.01 {
                         // Only store significant couplings
@@ -626,7 +626,7 @@ pub mod cpu_ising {
                 *s = if i % 2 == 0 { 1 } else { -1 };
             }
 
-            let sub_config = substring_config.unwrap_or(SubstringConfig::embedding_only());
+            let sub_config = substring_config.unwrap_or_else(SubstringConfig::embedding_only);
 
             // Compute couplings with combined similarity
             let mut couplings = HashMap::new();
@@ -651,7 +651,7 @@ pub mod cpu_ising {
                         .map(|&x| (x as f64).powi(2))
                         .sum::<f64>()
                         .sqrt();
-                    let cosine_sim = dot / (norm_i * norm_j + 1e-10);
+                    let cosine_sim = dot / norm_i.mul_add(norm_j, 1e-10);
 
                     // Compute combined coupling (embedding + substring)
                     let coupling = if let Some(bytes) = raw_bytes {
@@ -728,7 +728,7 @@ pub mod cpu_ising {
                 *s = if i % 2 == 0 { 1 } else { -1 };
             }
 
-            let sub_config = substring_config.unwrap_or(SubstringConfig::embedding_only());
+            let sub_config = substring_config.unwrap_or_else(SubstringConfig::embedding_only);
 
             let mut couplings = HashMap::new();
             for (i, (neighbors, sims)) in indices.iter().zip(values.iter()).enumerate() {
@@ -1254,6 +1254,897 @@ pub mod cpu_ising {
         ));
 
         partitions
+    }
+
+    // =========================================================================
+    // H-ROOTS: Tree-Returning Partition Functions
+    // =========================================================================
+    //
+    // These functions return RootsNode trees instead of flat Vec<Vec<usize>>.
+    // This preserves the hierarchical structure for O(log K) query routing.
+
+    use crate::roots::{RootsNode, RootsPartition};
+
+    /// Build a leaf partition from indices.
+    ///
+    /// Helper to create a RootsPartition from a set of indices.
+    fn build_leaf_partition(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        partition_id: usize,
+        store_indices: bool,
+    ) -> RootsPartition {
+        let mut partition = RootsPartition::new(partition_id, embedding_dim, store_indices);
+
+        for &idx in indices {
+            let emb = &embeddings[idx * embedding_dim..(idx + 1) * embedding_dim];
+            let prom = if idx < prominence.len() {
+                prominence[idx]
+            } else {
+                1.0
+            };
+            partition.add_point(emb, prom, idx);
+        }
+
+        partition.finalize();
+        partition
+    }
+
+    /// Perform hierarchical binary partition, returning a RootsNode tree.
+    ///
+    /// This is the tree-preserving version of `hierarchical_partition`.
+    /// Instead of flattening to `Vec<Vec<usize>>`, it returns a binary tree
+    /// that enables O(log K) query routing via beam search.
+    ///
+    /// # Arguments
+    ///
+    /// * `indices` - Global indices to partition
+    /// * `embeddings` - All embeddings (global, flat)
+    /// * `embedding_dim` - Dimension of each embedding
+    /// * `prominence` - Prominence scores (global)
+    /// * `target_k` - Target number of partitions
+    /// * `min_size` - Minimum partition size
+    /// * `beta` - Ising inverse temperature
+    /// * `n_warmup` - Gibbs warmup sweeps
+    /// * `n_sweeps` - Gibbs sampling sweeps
+    /// * `seed` - Random seed
+    /// * `partition_counter` - Mutable counter for unique partition IDs
+    /// * `store_indices` - Whether to store member indices in partitions
+    ///
+    /// # Returns
+    ///
+    /// A `RootsNode` tree preserving the hierarchical structure.
+    pub fn hierarchical_partition_tree(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        target_k: usize,
+        min_size: usize,
+        beta: f64,
+        n_warmup: usize,
+        n_sweeps: usize,
+        seed: u64,
+        partition_counter: &mut usize,
+        store_indices: bool,
+    ) -> RootsNode {
+        // Base case: create leaf
+        if target_k <= 1 || indices.len() <= min_size {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        let n = indices.len();
+
+        // Build local embeddings for this subset
+        let local_embeddings: Vec<f32> = indices
+            .iter()
+            .flat_map(|&idx| embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec())
+            .collect();
+
+        // Create Ising state
+        let mut ising = CpuIsingState::from_embeddings(&local_embeddings, n, embedding_dim, beta);
+
+        // Sample partition
+        ising.sample(n_warmup, n_sweeps, seed);
+
+        // Get partition
+        let (local_left, local_right) = ising.get_partition_indices();
+
+        // Map back to original indices
+        let left: Vec<usize> = local_left.iter().map(|&i| indices[i]).collect();
+        let right: Vec<usize> = local_right.iter().map(|&i| indices[i]).collect();
+
+        // Handle degenerate cases
+        let (left, right) = if left.is_empty() || right.is_empty() {
+            let mid = n / 2;
+            (indices[..mid].to_vec(), indices[mid..].to_vec())
+        } else {
+            (left, right)
+        };
+
+        // Recurse to get child trees
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let left_node = hierarchical_partition_tree(
+            &left,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_left,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(1),
+            partition_counter,
+            store_indices,
+        );
+
+        let right_node = hierarchical_partition_tree(
+            &right,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_right,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(2),
+            partition_counter,
+            store_indices,
+        );
+
+        // Create internal node with children
+        RootsNode::internal(left_node, right_node, embedding_dim)
+    }
+
+    /// Perform hierarchical partition with bytes, returning a RootsNode tree.
+    ///
+    /// Tree-preserving version of `hierarchical_partition_with_bytes`.
+    pub fn hierarchical_partition_with_bytes_tree(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        raw_bytes: &[Vec<u8>],
+        substring_config: SubstringConfig,
+        target_k: usize,
+        min_size: usize,
+        beta: f64,
+        n_warmup: usize,
+        n_sweeps: usize,
+        seed: u64,
+        partition_counter: &mut usize,
+        store_indices: bool,
+    ) -> RootsNode {
+        // Base case: create leaf
+        if target_k <= 1 || indices.len() <= min_size {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        let n = indices.len();
+
+        // Build local embeddings for this subset
+        let local_embeddings: Vec<f32> = indices
+            .iter()
+            .flat_map(|&idx| embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec())
+            .collect();
+
+        // Build local bytes
+        let local_bytes: Vec<Vec<u8>> = indices
+            .iter()
+            .map(|&idx| {
+                if idx < raw_bytes.len() {
+                    raw_bytes[idx].clone()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
+
+        // Create Ising state with combined coupling (embedding + bytes)
+        let mut ising = CpuIsingState::from_embeddings_with_bytes(
+            &local_embeddings,
+            n,
+            embedding_dim,
+            Some(&local_bytes),
+            Some(substring_config),
+            beta,
+        );
+
+        // Sample partition
+        ising.sample(n_warmup, n_sweeps, seed);
+
+        // Get partition
+        let (local_left, local_right) = ising.get_partition_indices();
+
+        // Map back to original indices
+        let left: Vec<usize> = local_left.iter().map(|&i| indices[i]).collect();
+        let right: Vec<usize> = local_right.iter().map(|&i| indices[i]).collect();
+
+        // Handle degenerate cases
+        let (left, right) = if left.is_empty() || right.is_empty() {
+            let mid = n / 2;
+            (indices[..mid].to_vec(), indices[mid..].to_vec())
+        } else {
+            (left, right)
+        };
+
+        // Recurse to get child trees
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let left_node = hierarchical_partition_with_bytes_tree(
+            &left,
+            embeddings,
+            embedding_dim,
+            prominence,
+            raw_bytes,
+            substring_config,
+            k_left,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(1),
+            partition_counter,
+            store_indices,
+        );
+
+        let right_node = hierarchical_partition_with_bytes_tree(
+            &right,
+            embeddings,
+            embedding_dim,
+            prominence,
+            raw_bytes,
+            substring_config,
+            k_right,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(2),
+            partition_counter,
+            store_indices,
+        );
+
+        // Create internal node with children
+        RootsNode::internal(left_node, right_node, embedding_dim)
+    }
+
+    /// Perform hierarchical partition with sparse similarity, returning a RootsNode tree.
+    ///
+    /// Tree-preserving version of `hierarchical_partition_sparse`.
+    pub fn hierarchical_partition_sparse_tree(
+        indices: &[usize],
+        sparse_indices: &[Vec<usize>],
+        sparse_values: &[Vec<f32>],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        target_k: usize,
+        min_size: usize,
+        beta: f64,
+        n_warmup: usize,
+        n_sweeps: usize,
+        seed: u64,
+        partition_counter: &mut usize,
+        store_indices: bool,
+    ) -> RootsNode {
+        // Base case: create leaf
+        if target_k <= 1 || indices.len() <= min_size {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        let n = indices.len();
+
+        // Build index map
+        let idx_map: HashMap<usize, usize> = indices
+            .iter()
+            .enumerate()
+            .map(|(local, &global)| (global, local))
+            .collect();
+
+        // Build local sparse similarity
+        let mut local_indices = vec![Vec::new(); n];
+        let mut local_values = vec![Vec::new(); n];
+
+        for (local_i, &global_i) in indices.iter().enumerate() {
+            if global_i < sparse_indices.len() {
+                for (&neighbor, &sim) in sparse_indices[global_i]
+                    .iter()
+                    .zip(sparse_values[global_i].iter())
+                {
+                    if let Some(&local_j) = idx_map.get(&neighbor) {
+                        if local_i < local_j {
+                            local_indices[local_i].push(local_j);
+                            local_values[local_i].push(sim);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create Ising state from sparse similarity
+        let mut ising =
+            CpuIsingState::from_sparse_similarity(&local_indices, &local_values, n, beta);
+
+        // Sample partition
+        ising.sample(n_warmup, n_sweeps, seed);
+
+        // Get partition
+        let (local_left, local_right) = ising.get_partition_indices();
+
+        // Map back to original indices
+        let left: Vec<usize> = local_left.iter().map(|&i| indices[i]).collect();
+        let right: Vec<usize> = local_right.iter().map(|&i| indices[i]).collect();
+
+        // Handle degenerate cases
+        let (left, right) = if left.is_empty() || right.is_empty() {
+            let mid = n / 2;
+            (indices[..mid].to_vec(), indices[mid..].to_vec())
+        } else {
+            (left, right)
+        };
+
+        // Recurse to get child trees
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let left_node = hierarchical_partition_sparse_tree(
+            &left,
+            sparse_indices,
+            sparse_values,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_left,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(1),
+            partition_counter,
+            store_indices,
+        );
+
+        let right_node = hierarchical_partition_sparse_tree(
+            &right,
+            sparse_indices,
+            sparse_values,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_right,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(2),
+            partition_counter,
+            store_indices,
+        );
+
+        // Create internal node with children
+        RootsNode::internal(left_node, right_node, embedding_dim)
+    }
+
+    /// Perform hierarchical partition with sparse similarity and bytes, returning a RootsNode tree.
+    ///
+    /// Tree-preserving version of `hierarchical_partition_sparse_with_bytes`.
+    pub fn hierarchical_partition_sparse_with_bytes_tree(
+        indices: &[usize],
+        sparse_indices: &[Vec<usize>],
+        sparse_values: &[Vec<f32>],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        raw_bytes: &[Vec<u8>],
+        substring_config: SubstringConfig,
+        target_k: usize,
+        min_size: usize,
+        beta: f64,
+        n_warmup: usize,
+        n_sweeps: usize,
+        seed: u64,
+        partition_counter: &mut usize,
+        store_indices: bool,
+    ) -> RootsNode {
+        // Base case: create leaf
+        if target_k <= 1 || indices.len() <= min_size {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        let n = indices.len();
+
+        // Build index map
+        let idx_map: HashMap<usize, usize> = indices
+            .iter()
+            .enumerate()
+            .map(|(local, &global)| (global, local))
+            .collect();
+
+        // Build local sparse similarity
+        let mut local_indices_sparse = vec![Vec::new(); n];
+        let mut local_values_sparse = vec![Vec::new(); n];
+
+        for (local_i, &global_i) in indices.iter().enumerate() {
+            if global_i < sparse_indices.len() {
+                for (&neighbor, &sim) in sparse_indices[global_i]
+                    .iter()
+                    .zip(sparse_values[global_i].iter())
+                {
+                    if let Some(&local_j) = idx_map.get(&neighbor) {
+                        if local_i < local_j {
+                            local_indices_sparse[local_i].push(local_j);
+                            local_values_sparse[local_i].push(sim);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build local bytes
+        let local_bytes: Vec<Vec<u8>> = indices
+            .iter()
+            .map(|&idx| {
+                if idx < raw_bytes.len() {
+                    raw_bytes[idx].clone()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
+
+        // Create Ising state from sparse similarity with bytes
+        let mut ising = CpuIsingState::from_sparse_similarity_with_bytes(
+            &local_indices_sparse,
+            &local_values_sparse,
+            n,
+            Some(&local_bytes),
+            Some(substring_config),
+            beta,
+        );
+
+        // Sample partition
+        ising.sample(n_warmup, n_sweeps, seed);
+
+        // Get partition
+        let (local_left, local_right) = ising.get_partition_indices();
+
+        // Map back to original indices
+        let left: Vec<usize> = local_left.iter().map(|&i| indices[i]).collect();
+        let right: Vec<usize> = local_right.iter().map(|&i| indices[i]).collect();
+
+        // Handle degenerate cases
+        let (left, right) = if left.is_empty() || right.is_empty() {
+            let mid = n / 2;
+            (indices[..mid].to_vec(), indices[mid..].to_vec())
+        } else {
+            (left, right)
+        };
+
+        // Recurse to get child trees
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let left_node = hierarchical_partition_sparse_with_bytes_tree(
+            &left,
+            sparse_indices,
+            sparse_values,
+            embeddings,
+            embedding_dim,
+            prominence,
+            raw_bytes,
+            substring_config,
+            k_left,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(1),
+            partition_counter,
+            store_indices,
+        );
+
+        let right_node = hierarchical_partition_sparse_with_bytes_tree(
+            &right,
+            sparse_indices,
+            sparse_values,
+            embeddings,
+            embedding_dim,
+            prominence,
+            raw_bytes,
+            substring_config,
+            k_right,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(2),
+            partition_counter,
+            store_indices,
+        );
+
+        // Create internal node with children
+        RootsNode::internal(left_node, right_node, embedding_dim)
+    }
+
+    // ========================================================================
+    // Alternating-Axis Spherical Partition
+    // ========================================================================
+
+    /// Project an embedding to spherical coordinates (theta, phi).
+    ///
+    /// Uses the first 3 components of normalized embedding as Cartesian (x, y, z),
+    /// then converts to spherical. For high-dim embeddings, this captures the
+    /// dominant spatial structure.
+    pub fn embedding_to_spherical(embedding: &[f32]) -> (f32, f32) {
+        // Normalize to unit sphere
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm < 1e-8 {
+            return (std::f32::consts::FRAC_PI_2, 0.0); // Default to equator
+        }
+
+        // Use first 3 dims as (x, y, z) for spatial structure
+        // For higher dims, this is a projection onto the first 3 principal axes
+        let x = embedding.first().copied().unwrap_or(0.0) / norm;
+        let y = embedding.get(1).copied().unwrap_or(0.0) / norm;
+        let z = embedding.get(2).copied().unwrap_or(0.0) / norm;
+
+        // Convert to spherical: theta = arccos(z), phi = atan2(y, x)
+        let theta = z.clamp(-1.0, 1.0).acos(); // [0, π]
+        let phi = y.atan2(x); // [-π, π]
+
+        (theta, phi)
+    }
+
+    /// Perform hierarchical partition with alternating θ/φ axis splits.
+    ///
+    /// This creates "checkerboard" tiles on the sphere rather than
+    /// "cantaloupe slices", improving beam search locality.
+    ///
+    /// - Even depth levels: split by θ (polar angle) - north/south
+    /// - Odd depth levels: split by φ (azimuthal angle) - east/west
+    pub fn hierarchical_partition_alternating(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        target_k: usize,
+        min_size: usize,
+        depth: usize,
+    ) -> Vec<Vec<usize>> {
+        // Base case
+        if target_k <= 1 || indices.len() <= min_size {
+            return vec![indices.to_vec()];
+        }
+
+        // Project all points to spherical coordinates
+        let mut indexed_coords: Vec<(usize, f32, f32)> = indices
+            .iter()
+            .map(|&idx| {
+                let emb = &embeddings[idx * embedding_dim..(idx + 1) * embedding_dim];
+                let (theta, phi) = embedding_to_spherical(emb);
+                (idx, theta, phi)
+            })
+            .collect();
+
+        // Alternate split axis based on depth
+        let split_by_theta = depth.is_multiple_of(2);
+
+        if split_by_theta {
+            // Sort by theta (polar angle)
+            indexed_coords
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            // Sort by phi (azimuthal angle)
+            indexed_coords
+                .sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
+        // Split at median
+        let mid = indexed_coords.len() / 2;
+        let left: Vec<usize> = indexed_coords[..mid]
+            .iter()
+            .map(|(idx, _, _)| *idx)
+            .collect();
+        let right: Vec<usize> = indexed_coords[mid..]
+            .iter()
+            .map(|(idx, _, _)| *idx)
+            .collect();
+
+        // Handle degenerate case
+        if left.is_empty() || right.is_empty() {
+            return vec![indices.to_vec()];
+        }
+
+        // Recurse with incremented depth
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let mut partitions = hierarchical_partition_alternating(
+            &left,
+            embeddings,
+            embedding_dim,
+            k_left,
+            min_size,
+            depth + 1,
+        );
+
+        partitions.extend(hierarchical_partition_alternating(
+            &right,
+            embeddings,
+            embedding_dim,
+            k_right,
+            min_size,
+            depth + 1,
+        ));
+
+        partitions
+    }
+
+    /// Hybrid partition: alternating axis direction + max-cut boundary.
+    ///
+    /// This combines the benefits of both approaches:
+    /// - Alternating axis ensures "checkerboard" tiles (no cantaloupe slices)
+    /// - Max-cut finds semantically optimal boundary within each axis direction
+    ///
+    /// Algorithm:
+    /// 1. Sort points by current axis (θ at even depth, φ at odd depth)
+    /// 2. Run Ising max-cut on the axis-sorted subset
+    /// 3. The max-cut naturally respects axis ordering due to sorted input
+    pub fn hierarchical_partition_alternating_maxcut(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        target_k: usize,
+        min_size: usize,
+        beta: f64,
+        n_warmup: usize,
+        n_sweeps: usize,
+        seed: u64,
+        depth: usize,
+    ) -> Vec<Vec<usize>> {
+        // Base case
+        if target_k <= 1 || indices.len() <= min_size {
+            return vec![indices.to_vec()];
+        }
+
+        let n = indices.len();
+
+        // Project all points to spherical coordinates and sort by current axis
+        let mut indexed_coords: Vec<(usize, f32, f32)> = indices
+            .iter()
+            .map(|&idx| {
+                let emb = &embeddings[idx * embedding_dim..(idx + 1) * embedding_dim];
+                let (theta, phi) = embedding_to_spherical(emb);
+                (idx, theta, phi)
+            })
+            .collect();
+
+        // Alternate split axis: even depth = θ (polar), odd depth = φ (azimuthal)
+        let split_by_theta = depth.is_multiple_of(2);
+
+        if split_by_theta {
+            indexed_coords
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            indexed_coords
+                .sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
+        // Extract sorted indices for Ising
+        let sorted_indices: Vec<usize> = indexed_coords.iter().map(|(idx, _, _)| *idx).collect();
+
+        // Build embeddings in sorted order for Ising
+        let sorted_embeddings: Vec<f32> = sorted_indices
+            .iter()
+            .flat_map(|&idx| embeddings[idx * embedding_dim..(idx + 1) * embedding_dim].to_vec())
+            .collect();
+
+        // Run Ising max-cut on the sorted embeddings
+        let mut ising = CpuIsingState::from_embeddings(&sorted_embeddings, n, embedding_dim, beta);
+        ising.sample(n_warmup, n_sweeps, seed);
+
+        // Get partition in sorted space
+        let (local_left, local_right) = ising.get_partition_indices();
+
+        // Map back to original indices through sorted order
+        let left: Vec<usize> = local_left.iter().map(|&i| sorted_indices[i]).collect();
+        let right: Vec<usize> = local_right.iter().map(|&i| sorted_indices[i]).collect();
+
+        // Handle degenerate cases - fall back to median split
+        let (left, right) = if left.is_empty() || right.is_empty() {
+            let mid = n / 2;
+            (
+                sorted_indices[..mid].to_vec(),
+                sorted_indices[mid..].to_vec(),
+            )
+        } else {
+            (left, right)
+        };
+
+        // Recurse with incremented depth
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let mut partitions = hierarchical_partition_alternating_maxcut(
+            &left,
+            embeddings,
+            embedding_dim,
+            k_left,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(1),
+            depth + 1,
+        );
+
+        partitions.extend(hierarchical_partition_alternating_maxcut(
+            &right,
+            embeddings,
+            embedding_dim,
+            k_right,
+            min_size,
+            beta,
+            n_warmup,
+            n_sweeps,
+            seed.wrapping_add(2),
+            depth + 1,
+        ));
+
+        partitions
+    }
+
+    /// Perform hierarchical partition with alternating axes, returning a tree.
+    ///
+    /// Tree-preserving version of `hierarchical_partition_alternating`.
+    pub fn hierarchical_partition_alternating_tree(
+        indices: &[usize],
+        embeddings: &[f32],
+        embedding_dim: usize,
+        prominence: &[f32],
+        target_k: usize,
+        min_size: usize,
+        depth: usize,
+        partition_counter: &mut usize,
+        store_indices: bool,
+    ) -> RootsNode {
+        // Base case - create leaf using standard partition builder
+        if target_k <= 1 || indices.len() <= min_size {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        // Project to spherical and sort by alternating axis
+        let mut indexed_coords: Vec<(usize, f32, f32)> = indices
+            .iter()
+            .map(|&idx| {
+                let emb = &embeddings[idx * embedding_dim..(idx + 1) * embedding_dim];
+                let (theta, phi) = embedding_to_spherical(emb);
+                (idx, theta, phi)
+            })
+            .collect();
+
+        // Alternate split axis: even depth = θ (polar), odd depth = φ (azimuthal)
+        let split_by_theta = depth.is_multiple_of(2);
+
+        if split_by_theta {
+            indexed_coords
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            indexed_coords
+                .sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
+        let mid = indexed_coords.len() / 2;
+        let left: Vec<usize> = indexed_coords[..mid]
+            .iter()
+            .map(|(idx, _, _)| *idx)
+            .collect();
+        let right: Vec<usize> = indexed_coords[mid..]
+            .iter()
+            .map(|(idx, _, _)| *idx)
+            .collect();
+
+        // Handle degenerate case
+        if left.is_empty() || right.is_empty() {
+            let id = *partition_counter;
+            *partition_counter += 1;
+            let partition = build_leaf_partition(
+                indices,
+                embeddings,
+                embedding_dim,
+                prominence,
+                id,
+                store_indices,
+            );
+            return RootsNode::leaf(partition);
+        }
+
+        // Recurse
+        let k_left = target_k / 2;
+        let k_right = target_k - k_left;
+
+        let left_node = hierarchical_partition_alternating_tree(
+            &left,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_left,
+            min_size,
+            depth + 1,
+            partition_counter,
+            store_indices,
+        );
+
+        let right_node = hierarchical_partition_alternating_tree(
+            &right,
+            embeddings,
+            embedding_dim,
+            prominence,
+            k_right,
+            min_size,
+            depth + 1,
+            partition_counter,
+            store_indices,
+        );
+
+        RootsNode::internal(left_node, right_node, embedding_dim)
     }
 
     #[cfg(test)]

@@ -65,12 +65,16 @@ fn test_hypergraph_spring_forces() {
     // Create random initial coordinates
     let r = Tensor::random([n], Distribution::Uniform(100.0, 200.0), &device);
     let theta = Tensor::random([n], Distribution::Uniform(0.5, 2.5), &device);
-    let phi = Tensor::random([n], Distribution::Uniform(0.0, 6.28), &device);
+    let phi = Tensor::random(
+        [n],
+        Distribution::Uniform(0.0, std::f64::consts::TAU),
+        &device,
+    );
     let coords = SphericalCoords::new(r, theta, phi);
 
     // Compute energies
     let energy = hypergraph_ebm.spring_energy(&coords);
-    let energy_data: Vec<f32> = energy.clone().into_data().to_vec().expect("energy to vec");
+    let energy_data: Vec<f32> = energy.into_data().to_vec().expect("energy to vec");
 
     println!(
         "Spring energy: min={:.2}, max={:.2}, mean={:.2}",
@@ -88,7 +92,7 @@ fn test_hypergraph_spring_forces() {
             let fx = forces_data[i * 3];
             let fy = forces_data[i * 3 + 1];
             let fz = forces_data[i * 3 + 2];
-            (fx * fx + fy * fy + fz * fz).sqrt()
+            fz.mul_add(fz, fx.mul_add(fx, fy * fy)).sqrt()
         })
         .collect();
 
@@ -139,13 +143,17 @@ fn test_hypergraph_coherence_energy() {
     let mut coh_data = vec![0.9f32; 5];
     coh_data.extend(vec![0.1f32; 5]);
     let coherence = Tensor::from_data(coh_data.as_slice(), &device);
-    hypergraph_ebm = hypergraph_ebm.with_coherence(coherence.clone(), coherence_weight);
+    hypergraph_ebm = hypergraph_ebm.with_coherence(coherence, coherence_weight);
 
     // Create coords: all at mid-radius
     let mid_r = 50.0;
     let r = Tensor::from_data([mid_r; 10].as_slice(), &device);
     let theta = Tensor::random([n], Distribution::Uniform(0.5, 2.5), &device);
-    let phi = Tensor::random([n], Distribution::Uniform(0.0, 6.28), &device);
+    let phi = Tensor::random(
+        [n],
+        Distribution::Uniform(0.0, std::f64::consts::TAU),
+        &device,
+    );
     let coords = SphericalCoords::new(r, theta, phi);
 
     // Compute coherence energy
@@ -197,12 +205,16 @@ fn test_lasing_dynamics_amplification() {
     let mid_radius = 100.0;
     let r = Tensor::from_data([mid_radius; 20].as_slice(), &device);
     let theta = Tensor::random([n], Distribution::Uniform(0.5, 2.5), &device);
-    let phi = Tensor::random([n], Distribution::Uniform(0.0, 6.28), &device);
+    let phi = Tensor::random(
+        [n],
+        Distribution::Uniform(0.0, std::f64::consts::TAU),
+        &device,
+    );
     let init_coords = SphericalCoords::new(r, theta, phi);
 
     // Create coherence: gradient from 0.1 to 1.0
     let coh_data: Vec<f32> = (0..n)
-        .map(|i| 0.1 + 0.9 * (i as f32 / (n - 1) as f32))
+        .map(|i| 0.9f32.mul_add(i as f32 / (n - 1) as f32, 0.1))
         .collect();
     let coherence = Tensor::from_data(coh_data.as_slice(), &device);
 
@@ -249,7 +261,7 @@ fn test_lasing_dynamics_amplification() {
 
     // Check that radii are within bounds
     assert!(
-        final_r.iter().all(|&r| r >= 10.0 && r <= 200.0),
+        final_r.iter().all(|&r| (10.0..=200.0).contains(&r)),
         "All radii should be within [10, 200]"
     );
 
@@ -277,7 +289,7 @@ fn test_combined_lasing_langevin() {
 
     // Create coherence scores
     let coh_data: Vec<f32> = (0..n)
-        .map(|i| 0.2 + 0.6 * (i as f32 / (n - 1) as f32))
+        .map(|i| 0.6f32.mul_add(i as f32 / (n - 1) as f32, 0.2))
         .collect();
     let coherence = Tensor::from_data(coh_data.as_slice(), &device);
 
@@ -371,20 +383,20 @@ fn test_sparse_similarity_topk() {
     // Cluster 1 (nodes 0-9): similar vectors
     for i in 0..10 {
         for j in 0..d {
-            emb_data.push(1.0 + 0.1 * (i as f32) + 0.01 * (j as f32));
+            emb_data.push(0.01f32.mul_add(j as f32, 0.1f32.mul_add(i as f32, 1.0)));
         }
     }
     // Cluster 2 (nodes 10-19): different similar vectors
     for i in 0..10 {
         for j in 0..d {
-            emb_data.push(-1.0 + 0.1 * (i as f32) + 0.01 * (j as f32));
+            emb_data.push(0.01f32.mul_add(j as f32, 0.1f32.mul_add(i as f32, -1.0)));
         }
     }
     // Random vectors (nodes 20-49)
     let mut rng = rand::thread_rng();
     for _ in 20..n {
         for _ in 0..d {
-            emb_data.push(rng.gen::<f32>() * 2.0 - 1.0);
+            emb_data.push(rng.gen::<f32>().mul_add(2.0, -1.0));
         }
     }
 
@@ -490,8 +502,8 @@ fn test_geodesic_distances() {
     }
 
     // Nodes at same theta should have smaller geodesic distances (on same latitude)
-    let north_to_north = dist_data[0 * n + 1]; // nodes 0-1 (both north pole region)
-    let north_to_equator = dist_data[0 * n + 5]; // node 0 (north) to node 5 (equator)
+    let north_to_north = dist_data[1]; // nodes 0-1 (both north pole region)
+    let north_to_equator = dist_data[5]; // node 0 (north) to node 5 (equator)
 
     println!("North-to-North geodesic: {:.4}", north_to_north);
     println!("North-to-Equator geodesic: {:.4}", north_to_equator);
@@ -528,7 +540,7 @@ fn test_entropy_weighted_optimization() {
 
     // Varying entropy: high entropy should go to outer shells
     let ent_data: Vec<f32> = (0..n)
-        .map(|i| 0.1 + 0.9 * (i as f32 / (n - 1) as f32))
+        .map(|i| 0.9f32.mul_add(i as f32 / (n - 1) as f32, 0.1))
         .collect();
     let entropies = Tensor::from_data(ent_data.as_slice(), &device);
 
@@ -566,7 +578,7 @@ fn test_entropy_weighted_optimization() {
 
     // Run both
     let key = RngKey::new(42);
-    let coords_no_entropy = ebm_no_entropy.optimize(key.clone(), &device);
+    let coords_no_entropy = ebm_no_entropy.optimize(key, &device);
     let coords_entropy = ebm_entropy.optimize(key, &device);
 
     let r_no_entropy: Vec<f32> = coords_no_entropy.r.into_data().to_vec().expect("r to vec");
@@ -634,7 +646,7 @@ fn compute_rank_correlation(x: &[f32], y: &[f32]) -> f32 {
         var_y += dy * dy;
     }
 
-    cov / (var_x.sqrt() * var_y.sqrt() + 1e-8)
+    cov / var_x.sqrt().mul_add(var_y.sqrt(), 1e-8)
 }
 
 fn compute_ranks(x: &[f32]) -> Vec<f32> {

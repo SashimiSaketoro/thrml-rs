@@ -112,7 +112,7 @@ impl RollingHash {
     ///
     /// * `old_byte` - Byte leaving the window (leftmost)
     /// * `new_byte` - Byte entering the window (rightmost)
-    pub fn roll(&mut self, old_byte: u8, new_byte: u8) {
+    pub const fn roll(&mut self, old_byte: u8, new_byte: u8) {
         // Current hash = old_byte * B^(n-1) + ... + last_byte
         // New hash = middle_bytes * B + new_byte
         //
@@ -128,12 +128,12 @@ impl RollingHash {
     }
 
     /// Get the current hash value.
-    pub fn value(&self) -> u64 {
+    pub const fn value(&self) -> u64 {
         self.hash
     }
 
     /// Get the window size.
-    pub fn window_size(&self) -> usize {
+    pub const fn window_size(&self) -> usize {
         self.window_size
     }
 }
@@ -343,7 +343,7 @@ pub fn check_containment(a: &[u8], b: &[u8]) -> Option<(bool, usize, usize)> {
 /// assert!((hybrid - 0.68).abs() < 1e-6);  // 0.7*0.8 + 0.3*0.4 = 0.68
 /// ```
 pub fn hybrid_similarity(sim_a: f32, sim_b: f32, alpha: f32, beta: f32) -> f32 {
-    alpha * sim_a + beta * sim_b
+    alpha.mul_add(sim_a, beta * sim_b)
 }
 
 /// Configuration for text similarity computation.
@@ -392,14 +392,14 @@ impl TextSimilarityConfig {
     }
 
     /// Builder: set n-gram range.
-    pub fn with_ngram_range(mut self, min_n: usize, max_n: usize) -> Self {
+    pub const fn with_ngram_range(mut self, min_n: usize, max_n: usize) -> Self {
         self.min_n = min_n;
         self.max_n = max_n;
         self
     }
 
     /// Builder: set weights.
-    pub fn with_weights(mut self, embedding_weight: f32, text_weight: f32) -> Self {
+    pub const fn with_weights(mut self, embedding_weight: f32, text_weight: f32) -> Self {
         self.embedding_weight = embedding_weight;
         self.text_weight = text_weight;
         self

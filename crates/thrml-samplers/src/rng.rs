@@ -11,13 +11,13 @@ pub struct RngKey(pub u64);
 
 impl RngKey {
     /// Create a new RNG key from a seed.
-    pub fn new(seed: u64) -> Self {
-        RngKey(seed)
+    pub const fn new(seed: u64) -> Self {
+        Self(seed)
     }
 
     /// Split this key into multiple independent keys.
     /// This is similar to JAX's `jax.random.split`.
-    pub fn split(self, n: usize) -> Vec<RngKey> {
+    pub fn split(self, n: usize) -> Vec<Self> {
         if n == 0 {
             return Vec::new();
         }
@@ -31,20 +31,20 @@ impl RngKey {
 
         for _ in 0..n {
             let seed = rng.next_u64();
-            keys.push(RngKey(seed));
+            keys.push(Self(seed));
         }
 
         keys
     }
 
     /// Split into exactly two keys (common case).
-    pub fn split_two(self) -> (RngKey, RngKey) {
+    pub fn split_two(self) -> (Self, Self) {
         let keys = self.split(2);
         (keys[0], keys[1])
     }
 
     /// Get the seed value.
-    pub fn seed(&self) -> u64 {
+    pub const fn seed(&self) -> u64 {
         self.0
     }
 }

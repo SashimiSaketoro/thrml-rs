@@ -37,7 +37,7 @@ fn create_simple_setup(
         Block::new(vec![free_nodes[1].clone(), free_nodes[2].clone()]).unwrap(),
     ];
 
-    let clamped_blocks = vec![Block::new(clamped_nodes.clone()).unwrap()];
+    let clamped_blocks = vec![Block::new(clamped_nodes).unwrap()];
 
     // Create a simple interaction group
     let interaction_weights: Tensor<WgpuBackend, 3> = Tensor::ones([3, 1, 1], device);
@@ -45,7 +45,7 @@ fn create_simple_setup(
     let interaction_group = InteractionGroup::new(
         interaction_weights,
         Block::new(free_nodes.clone()).unwrap(),
-        vec![Block::new(free_nodes.clone()).unwrap()],
+        vec![Block::new(free_nodes).unwrap()],
         1, // n_spin
     )
     .unwrap();
@@ -71,7 +71,7 @@ fn test_block_gibbs_spec_creation() {
     // Wrap each free block in a vec (each block is its own superblock)
     let free_super_blocks: Vec<Vec<Block>> = free_blocks.iter().map(|b| vec![b.clone()]).collect();
 
-    let spec = BlockGibbsSpec::new(free_super_blocks, clamped_blocks.clone(), node_shape_dtypes);
+    let spec = BlockGibbsSpec::new(free_super_blocks, clamped_blocks, node_shape_dtypes);
 
     assert!(spec.is_ok(), "BlockGibbsSpec creation should succeed");
 
@@ -95,7 +95,7 @@ fn test_block_sampling_program_creation() {
 
     let free_super_blocks: Vec<Vec<Block>> = free_blocks.iter().map(|b| vec![b.clone()]).collect();
     let spec =
-        BlockGibbsSpec::new(free_super_blocks, clamped_blocks.clone(), node_shape_dtypes).unwrap();
+        BlockGibbsSpec::new(free_super_blocks, clamped_blocks, node_shape_dtypes).unwrap();
 
     // Create samplers (one per free block)
     let samplers: Vec<Box<dyn DynConditionalSampler>> = vec![
@@ -122,7 +122,7 @@ fn test_sampler_count_validation() {
 
     let free_super_blocks: Vec<Vec<Block>> = free_blocks.iter().map(|b| vec![b.clone()]).collect();
     let spec =
-        BlockGibbsSpec::new(free_super_blocks, clamped_blocks.clone(), node_shape_dtypes).unwrap();
+        BlockGibbsSpec::new(free_super_blocks, clamped_blocks, node_shape_dtypes).unwrap();
 
     // Wrong number of samplers (only 1, need 2)
     let samplers: Vec<Box<dyn DynConditionalSampler>> = vec![Box::new(BernoulliConditional)];
@@ -149,7 +149,7 @@ fn test_run_blocks() {
 
     let free_super_blocks: Vec<Vec<Block>> = free_blocks.iter().map(|b| vec![b.clone()]).collect();
     let spec =
-        BlockGibbsSpec::new(free_super_blocks, clamped_blocks.clone(), node_shape_dtypes).unwrap();
+        BlockGibbsSpec::new(free_super_blocks, clamped_blocks, node_shape_dtypes).unwrap();
 
     let samplers: Vec<Box<dyn DynConditionalSampler>> = vec![
         Box::new(BernoulliConditional),

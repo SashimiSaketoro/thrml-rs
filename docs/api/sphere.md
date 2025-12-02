@@ -6,20 +6,24 @@ The `thrml-sphere` crate provides hyperspherical embedding optimization, ROOTS i
 
 ```
 thrml-sphere/
-├── sphere_ebm.rs      # Core sphere optimization model
-├── navigator.rs       # Multi-cone EBM navigation + RuntimeConfig
-├── roots.rs           # ROOTS compressed index layer
-├── training.rs        # Training infrastructure
-├── contrastive.rs     # Advanced CD techniques
-├── evaluation.rs      # Navigation metrics (recall@k, MRR, nDCG)
-├── config.rs          # Scale profiles and configuration
-├── hamiltonian.rs     # Energy functions
-├── langevin.rs        # Sphere-specific Langevin dynamics
-├── hypergraph.rs      # Graph connectivity
-├── loader.rs          # SafeTensors file loading
-├── compute.rs         # Hybrid CPU/GPU backend + text primitives
-├── similarity.rs      # GPU similarity (re-exports from thrml-core)
-└── lasing.rs          # Coherence-driven dynamics
+├── sphere_ebm.rs           # Core sphere optimization model
+├── navigator.rs            # Multi-cone EBM navigation + RuntimeConfig
+├── roots.rs                # H-ROOTS compressed index layer + FlatTreeNode
+├── hypergraph.rs           # Graph connectivity (HypergraphEBM)
+├── hypergraph_loader.rs    # Load hypergraph with edge type filtering
+├── spherical_harmonics.rs  # Spherical harmonics basis and transforms
+├── harmonic_navigator.rs   # SH-guided navigation refinement
+├── training.rs             # Training infrastructure
+├── contrastive.rs          # Advanced CD techniques
+├── evaluation.rs           # Navigation metrics (recall@k, MRR, nDCG)
+├── config.rs               # Scale profiles and configuration
+├── hamiltonian.rs          # Energy functions
+├── langevin.rs             # Sphere-specific Langevin dynamics
+├── loader.rs               # SafeTensors file loading
+├── compute.rs              # Hybrid CPU/GPU backend + text primitives
+├── similarity.rs           # GPU similarity (re-exports from thrml-core)
+├── double_float.rs         # f64 precision via f32 pairs (for SH stability)
+└── lasing.rs               # Coherence-driven dynamics
 ```
 
 ### Re-exported Primitives
@@ -295,6 +299,7 @@ pub struct NavigationWeights {
     pub lambda_graph: f32,     // Graph traversal
     pub lambda_entropy: f32,   // Entropy penalty
     pub lambda_path: f32,      // Path length
+    pub lambda_harmonic: f32,  // Spherical harmonics interference
     pub temperature: f32,      // LogSumExp temperature
 }
 
@@ -395,14 +400,14 @@ let spark = RuntimeConfig::for_tier(HardwareTier::NvidiaSpark);
 
 ---
 
-## ROOTS Index
+## H-ROOTS Index (Hierarchical ROOTS)
 
-Compressed inner-shell index for coarse-grained navigation (3000:1 compression).
+Compressed inner-shell index with O(log K) routing and semantic edge extraction (3000:1 compression).
 
 ### `RootsIndex`
 
 ```rust
-use thrml_sphere::{RootsIndex, RootsConfig, SubstringConfig};
+use thrml_sphere::{RootsIndex, RootsConfig, SubstringConfig, FlatTreeNode};
 
 // Configure with substring coupling
 let config = RootsConfig::default()
@@ -413,8 +418,8 @@ let config = RootsConfig::default()
         ..Default::default()
     });
 
-// Build index
-let roots = RootsIndex::from_sphere_ebm_with_bytes(
+// Build HIERARCHICAL index (default in pipeline)
+let roots = RootsIndex::from_sphere_ebm_with_bytes_hierarchical(
     &sphere_ebm,
     &patch_bytes,
     config,
@@ -422,12 +427,52 @@ let roots = RootsIndex::from_sphere_ebm_with_bytes(
     &device,
 );
 
-// Route queries to partitions
-let partition_id = roots.route(&query_embedding);
+// Tree-based activation (O(log K) instead of O(K))
+let peaks = roots.activate_tree(&query, threshold, beam_width);
 
-// Detect activation peaks for cone spawning
-let activations = roots.activate(&query, &device);
-let peaks = roots.detect_peaks(&activations);
+// Extract semantic edges (reuses similarity from Ising - FREE!)
+let semantic_edges = roots.extract_semantic_edges(0.7);
+// Returns Vec<(src_idx, dst_idx, similarity)> for sim ≥ 0.7
+
+// Serialize tree for persistence
+if let Some(flat_nodes) = roots.flatten_tree() {
+    db.save_roots_tree(&flat_nodes, version)?;
+}
+
+// Reconstruct tree from database
+let flat_nodes = db.load_roots_tree()?;
+let root = RootsIndex::unflatten_tree(&flat_nodes, &partitions);
+```
+
+### `FlatTreeNode` (Tree Serialization)
+
+```rust
+pub struct FlatTreeNode {
+    pub node_id: usize,
+    pub parent_id: Option<usize>,   // None for root
+    pub is_leaf: bool,
+    pub partition_id: Option<usize>, // Only for leaves
+    pub left_child: Option<usize>,   // Only for internals
+    pub right_child: Option<usize>,
+    pub centroid: Vec<f32>,
+    pub point_count: usize,
+    pub radius_range: (f32, f32),
+    pub prom_range: (f32, f32),
+}
+```
+
+### Tree Lifecycle
+
+```rust
+// After sphere optimization changes positions:
+db.invalidate_roots_tree()?;
+
+// Check before using tree:
+if db.is_roots_tree_stale()? {
+    let new_roots = RootsIndex::from_sphere_ebm_hierarchical(...);
+    db.save_roots_tree(&new_roots.flatten_tree().unwrap(), version)?;
+    db.clear_roots_tree_stale()?;
+}
 ```
 
 ### `RootsConfig`
@@ -439,8 +484,109 @@ pub struct RootsConfig {
     pub ising_temperature: f32,        // Annealing temperature
     pub threshold: f32,                // Activation threshold
     pub substring_coupling: Option<SubstringConfig>,
+    pub similarity_k: usize,           // Top-k for sparse similarity
 }
 ```
+
+---
+
+## Hypergraph
+
+Structural adjacency graph with heterogeneous edge types.
+
+### Edge Types
+
+| Label | Default Weight | Description |
+|-------|----------------|-------------|
+| `"next"` | 1.0 | Sequential edges within documents |
+| `"contains"` | 0.5 | Hierarchical containment |
+| `"same_source"` | 1.0 | Cross-view connections |
+| `"semantic"` | 0.8 | **High similarity pairs from ROOTS (≥0.7)** |
+
+### `HypergraphLoadConfig`
+
+```rust
+use thrml_sphere::{HypergraphLoadConfig, load_hypergraph_from_sqlite};
+
+// Configure which edge types to include
+let config = HypergraphLoadConfig {
+    include_next_edges: true,
+    include_contains_edges: false,
+    include_same_source_edges: true,
+    include_semantic_edges: true,     // From ROOTS similarity
+    next_edge_weight: 1.0,
+    contains_edge_weight: 0.5,
+    same_source_edge_weight: 1.0,
+    semantic_edge_weight: 0.8,        // Slightly weaker than sequential
+    ..Default::default()
+};
+
+// Load with filtering
+let hypergraph = load_hypergraph_from_sqlite(&db_path, n_patches, &config, &device)?;
+
+// Presets
+let code_config = HypergraphLoadConfig::for_code();   // semantic_weight: 0.9
+let text_config = HypergraphLoadConfig::for_text();   // semantic_weight: 0.7
+```
+
+---
+
+## Spherical Harmonics
+
+Frequency-domain smooth interpolation using spherical harmonic (SH) basis functions. Complements ROOTS (coarse partition routing) and hypergraph (structural edges) with smooth wave-like refinement.
+
+### `SphericalHarmonicsBasis`
+
+Precomputed Y_l^m basis on a Driscoll-Healy grid:
+
+```rust
+use thrml_sphere::{SphericalHarmonicsBasis, SphericalHarmonicsConfig};
+
+// Create basis with band limit L
+let config = SphericalHarmonicsConfig {
+    band_limit: 16,  // l = 0..16, higher = finer resolution
+    use_f64: false,  // Use DoubleTensor for high L
+};
+let basis = SphericalHarmonicsBasis::new(config, &device);
+
+// Forward transform: field → coefficients
+let coeffs = basis.forward_sht(&density_field);
+
+// Inverse transform: coefficients → field
+let reconstructed = basis.inverse_sht(&coeffs);
+
+// Find peak in interference pattern
+let (theta, phi, value) = basis.find_peak(&intensity_field);
+```
+
+### `HarmonicNavigator`
+
+SH-guided navigation refinement using wave superposition:
+
+```rust
+use thrml_sphere::HarmonicNavigator;
+
+// Create navigator with pre-fitted SH coefficients
+let harmonic_nav = HarmonicNavigator::from_ebm(&sphere_ebm, config, &device);
+
+// Navigate using SH interference pattern
+let result = harmonic_nav.navigate(&query_embedding, radius, &device);
+// Returns: HarmonicNavigationResult { r, theta, phi, alpha, score, confidence }
+```
+
+### Integration with NavigatorEBM
+
+The `lambda_harmonic` weight controls SH influence in the total energy:
+
+```
+E_total = λ_semantic · E_sem + λ_radial · E_rad + λ_graph · E_graph 
+        + λ_entropy · E_ent + λ_path · E_path + λ_harmonic · E_harmonic
+```
+
+**Use cases:**
+- **ROOTS**: Coarse partition routing (O(log K))
+- **Hypergraph**: Structural adjacency (sequential, containment)
+- **HarmonicNavigator**: Frequency-domain smooth interpolation
 
 ---
 

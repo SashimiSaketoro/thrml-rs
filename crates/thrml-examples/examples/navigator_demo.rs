@@ -175,7 +175,7 @@ fn main() -> Result<()> {
         // Use hardware-optimized budget from RuntimeConfig
         runtime_config
             .budget
-            .clone()
+            
             .with_peak_threshold(args.peak_threshold)
     } else {
         // Use CLI-specified budget (default 256MB if not specified)
@@ -248,7 +248,7 @@ fn main() -> Result<()> {
 
     let query: Tensor<WgpuBackend, 1> = sphere_ebm
         .embeddings
-        .clone()
+        
         .slice([query_idx..query_idx + 1, 0..d])
         .reshape([d as i32]);
 

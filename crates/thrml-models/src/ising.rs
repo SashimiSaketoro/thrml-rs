@@ -67,7 +67,7 @@ impl IsingEBM {
             .map(|v: Vec<f32>| v.first().copied().unwrap_or(1.0))
             .unwrap_or(1.0);
 
-        IsingEBM {
+        Self {
             nodes,
             biases,
             edges,
@@ -93,7 +93,7 @@ impl IsingEBM {
 
     /// Get the cached beta value (avoids GPU sync).
     #[inline]
-    pub fn beta_value(&self) -> f32 {
+    pub const fn beta_value(&self) -> f32 {
         self.beta_cached
     }
 
@@ -143,7 +143,7 @@ impl IsingEBM {
     }
 
     /// Get the node shape/dtype specification for this model.
-    pub fn node_shape_dtypes(&self) -> &IndexMap<NodeType, TensorSpec> {
+    pub const fn node_shape_dtypes(&self) -> &IndexMap<NodeType, TensorSpec> {
         &self.node_shape_dtypes
     }
 }
@@ -166,7 +166,7 @@ impl AbstractEBM for IsingEBM {
         };
 
         // Convert bool state to spin state: s = 2*x - 1 where x ∈ {0, 1}
-        let spin_state = node_state.clone() * 2.0 - 1.0;
+        let spin_state = node_state * 2.0 - 1.0;
 
         // Get beta value
         let beta_data: Vec<f32> = self.beta.clone().into_data().to_vec().expect("read beta");
@@ -180,7 +180,7 @@ impl AbstractEBM for IsingEBM {
             .to_vec()
             .expect("read biases");
         let spin_data: Vec<f32> = spin_state
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("read spin state");
@@ -388,7 +388,7 @@ impl IsingSamplingProgram {
         // Create the sampling program
         let program = BlockSamplingProgram::new(gibbs_spec, samplers, interaction_groups)?;
 
-        Ok(IsingSamplingProgram { program })
+        Ok(Self { program })
     }
 }
 
@@ -426,7 +426,7 @@ impl IsingTrainingSpec {
         let program_negative =
             IsingSamplingProgram::new(&ebm, negative_sampling_blocks, conditioning_blocks, device)?;
 
-        Ok(IsingTrainingSpec {
+        Ok(Self {
             ebm,
             program_positive,
             program_negative,

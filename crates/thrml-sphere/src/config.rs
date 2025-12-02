@@ -3,6 +3,21 @@
 //! This module provides scale profiles and configuration settings for
 //! controlling the sphere optimization process.
 
+use std::str::FromStr;
+
+/// Shell capacity exponent for radial distribution.
+///
+/// For a sphere, shell volume at radius r is dV = 4πr² dr.
+/// To achieve uniform point density per unit surface area,
+/// capacity must scale as r² (surface area law).
+///
+/// The radius formula is: `r = min + span * normalized^(1/CAPACITY_EXPONENT)`
+///
+/// - `CAPACITY_EXPONENT = 2.0`: Surface area law (uniform density) - **physically correct**
+/// - `CAPACITY_EXPONENT = 3.0`: Volume law (denser outer shells)
+/// - `CAPACITY_EXPONENT = 1.5`: Legacy empirical value (not recommended)
+pub const SHELL_CAPACITY_EXPONENT: f32 = 2.0;
+
 /// Scale profile for different corpus sizes.
 ///
 /// Each profile is tuned for a specific scale of data:
@@ -23,15 +38,16 @@ pub enum ScaleProfile {
     Planetary,
 }
 
-impl ScaleProfile {
-    /// Parse scale profile from string.
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for ScaleProfile {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "dev" | "development" => Some(Self::Dev),
-            "medium" | "med" => Some(Self::Medium),
-            "large" | "lg" => Some(Self::Large),
-            "planetary" | "planet" | "huge" => Some(Self::Planetary),
-            _ => None,
+            "dev" | "development" => Ok(Self::Dev),
+            "medium" | "med" => Ok(Self::Medium),
+            "large" | "lg" => Ok(Self::Large),
+            "planetary" | "planet" | "huge" => Ok(Self::Planetary),
+            _ => Err(format!("unknown scale profile: {s}")),
         }
     }
 }
@@ -67,7 +83,7 @@ impl Default for SphereConfig {
 impl From<ScaleProfile> for SphereConfig {
     fn from(profile: ScaleProfile) -> Self {
         match profile {
-            ScaleProfile::Dev => SphereConfig {
+            ScaleProfile::Dev => Self {
                 min_radius: 32.0,
                 max_radius: 512.0,
                 interaction_radius: 1.0,
@@ -76,7 +92,7 @@ impl From<ScaleProfile> for SphereConfig {
                 n_steps: 120,
                 entropy_weighted: false,
             },
-            ScaleProfile::Medium => SphereConfig {
+            ScaleProfile::Medium => Self {
                 min_radius: 64.0,
                 max_radius: 2048.0,
                 interaction_radius: 1.25,
@@ -85,7 +101,7 @@ impl From<ScaleProfile> for SphereConfig {
                 n_steps: 240,
                 entropy_weighted: false,
             },
-            ScaleProfile::Large => SphereConfig {
+            ScaleProfile::Large => Self {
                 min_radius: 96.0,
                 max_radius: 8192.0,
                 interaction_radius: 1.5,
@@ -94,7 +110,7 @@ impl From<ScaleProfile> for SphereConfig {
                 n_steps: 480,
                 entropy_weighted: false,
             },
-            ScaleProfile::Planetary => SphereConfig {
+            ScaleProfile::Planetary => Self {
                 min_radius: 128.0,
                 max_radius: 32768.0,
                 interaction_radius: 2.0,
@@ -112,37 +128,37 @@ impl SphereConfig {
     ///
     /// When enabled, points with higher entropy get larger radii,
     /// pushing uncertain embeddings to the outer shell.
-    pub fn with_entropy_weighted(mut self, enabled: bool) -> Self {
+    pub const fn with_entropy_weighted(mut self, enabled: bool) -> Self {
         self.entropy_weighted = enabled;
         self
     }
 
     /// Set the number of Langevin steps.
-    pub fn with_steps(mut self, n_steps: usize) -> Self {
+    pub const fn with_steps(mut self, n_steps: usize) -> Self {
         self.n_steps = n_steps;
         self
     }
 
     /// Set the temperature for Langevin dynamics.
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set the step size (dt) for Langevin dynamics.
-    pub fn with_step_size(mut self, step_size: f32) -> Self {
+    pub const fn with_step_size(mut self, step_size: f32) -> Self {
         self.step_size = step_size;
         self
     }
 
     /// Set the interaction radius for lateral forces.
-    pub fn with_interaction_radius(mut self, radius: f32) -> Self {
+    pub const fn with_interaction_radius(mut self, radius: f32) -> Self {
         self.interaction_radius = radius;
         self
     }
 
     /// Set the radius bounds.
-    pub fn with_radii(mut self, min_radius: f32, max_radius: f32) -> Self {
+    pub const fn with_radii(mut self, min_radius: f32, max_radius: f32) -> Self {
         self.min_radius = min_radius;
         self.max_radius = max_radius;
         self
@@ -160,14 +176,11 @@ mod tests {
 
     #[test]
     fn test_scale_profile_from_str() {
-        assert_eq!(ScaleProfile::from_str("dev"), Some(ScaleProfile::Dev));
-        assert_eq!(ScaleProfile::from_str("MEDIUM"), Some(ScaleProfile::Medium));
-        assert_eq!(ScaleProfile::from_str("large"), Some(ScaleProfile::Large));
-        assert_eq!(
-            ScaleProfile::from_str("planetary"),
-            Some(ScaleProfile::Planetary)
-        );
-        assert_eq!(ScaleProfile::from_str("unknown"), None);
+        assert_eq!("dev".parse::<ScaleProfile>().unwrap(), ScaleProfile::Dev);
+        assert_eq!("MEDIUM".parse::<ScaleProfile>().unwrap(), ScaleProfile::Medium);
+        assert_eq!("large".parse::<ScaleProfile>().unwrap(), ScaleProfile::Large);
+        assert_eq!("planetary".parse::<ScaleProfile>().unwrap(), ScaleProfile::Planetary);
+        assert!("unknown".parse::<ScaleProfile>().is_err());
     }
 
     #[test]

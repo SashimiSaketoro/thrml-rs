@@ -107,7 +107,7 @@ impl MomentAccumulatorObserver {
             flat_to_type_slices_list.push(slices);
         }
 
-        MomentAccumulatorObserver {
+        Self {
             blocks_to_sample,
             flat_nodes_list,
             flat_to_type_slices_list,
@@ -268,7 +268,7 @@ mod tests {
         // Create moment spec for first and second moments
         let spec = MomentAccumulatorObserver::ising_moment_spec(
             &[node1.clone(), node2.clone()],
-            &[(node1.clone(), node2.clone())],
+            &[(node1, node2)],
         );
 
         let observer = MomentAccumulatorObserver::new(spec, true);

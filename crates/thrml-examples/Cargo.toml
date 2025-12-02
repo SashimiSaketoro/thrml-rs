@@ -53,7 +53,6 @@ thrml-core = { path = "../thrml-core", default-features = false }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-models = { path = "../thrml-models" }
 thrml-sphere = { path = "../thrml-sphere" }
-safetensors = "0.4"
 anyhow = "1.0"
 burn = { version = "0.19", default-features = false }
 

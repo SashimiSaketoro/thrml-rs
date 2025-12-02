@@ -350,7 +350,7 @@ fn evaluate(
     let program = match thrml_models::ising::IsingSamplingProgram::new(
         model,
         positive_sampling_blocks.clone(),
-        training_data_blocks.clone(),
+        training_data_blocks,
         device,
     ) {
         Ok(p) => p,
@@ -372,17 +372,17 @@ fn evaluate(
 
             // Initialize hidden states
             let init_states =
-                hinton_init(key.clone(), model, &positive_sampling_blocks, &[], device);
+                hinton_init(key, model, &positive_sampling_blocks, &[], device);
             let init_states_1d: Vec<Tensor<WgpuBackend, 1>> =
                 init_states.into_iter().map(|t| t.squeeze::<1>()).collect();
 
             // Run sampling with data clamped
             let samples = sample_states(
-                key.clone(),
+                key,
                 &program.program,
                 &schedule,
                 init_states_1d,
-                &[data_slice.clone()],
+                std::slice::from_ref(&data_slice),
                 &positive_sampling_blocks,
                 device,
             );
@@ -589,7 +589,7 @@ fn main() {
 
     // Sampling blocks
     let positive_sampling_blocks = vec![upper_without_visible.clone(), lower_grid.clone()];
-    let negative_sampling_blocks = vec![upper_grid.clone(), lower_grid.clone()];
+    let negative_sampling_blocks = vec![upper_grid, lower_grid.clone()];
     let training_data_blocks = vec![visible_nodes.clone()];
 
     // Schedules
@@ -602,12 +602,12 @@ fn main() {
     // The sampling programs only depend on graph structure, not weights
     let training_spec = IsingTrainingSpec::new(
         model.clone(),
-        training_data_blocks.clone(),
+        training_data_blocks,
         vec![],
         positive_sampling_blocks.clone(),
         negative_sampling_blocks.clone(),
-        schedule_positive.clone(),
-        schedule_negative.clone(),
+        schedule_positive,
+        schedule_negative,
         &device,
     )
     .expect("Failed to create training spec");
@@ -616,7 +616,7 @@ fn main() {
 
     // Training loop
     let mut key = RngKey::new(config.seed);
-    let n_batches = (train_dims[0] + config.batch_size - 1) / config.batch_size;
+    let n_batches = train_dims[0].div_ceil(config.batch_size);
 
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║                    Starting Training                         ║");
@@ -662,17 +662,17 @@ fn main() {
 
             // Initialize states
             let keys = key.split(3);
-            key = keys[2].clone();
+            key = keys[2];
 
             let init_free_pos = hinton_init(
-                keys[0].clone(),
+                keys[0],
                 &model,
                 &positive_sampling_blocks,
                 &[],
                 &device,
             );
             let init_free_neg = hinton_init(
-                keys[1].clone(),
+                keys[1],
                 &model,
                 &negative_sampling_blocks,
                 &[],
@@ -690,7 +690,7 @@ fn main() {
 
             // Compute gradients (using pre-created training spec)
             let result = estimate_kl_grad(
-                keys[0].clone(),
+                keys[0],
                 &training_spec,
                 &all_nodes,
                 &all_edges,
@@ -781,7 +781,7 @@ fn main() {
                 &upper_without_visible,
                 &lower_grid,
                 &config,
-                key.clone(),
+                key,
                 &device,
             );
 

@@ -38,6 +38,12 @@ use burn::tensor::{Distribution, Tensor};
 use thrml_core::backend::WgpuBackend;
 use thrml_samplers::{LangevinConfig, RngKey};
 
+// Fused kernel imports (when feature enabled)
+#[cfg(feature = "fused-kernels")]
+use thrml_core::backend::CubeWgpuBackend;
+#[cfg(feature = "fused-kernels")]
+use thrml_kernels::cosine_similarity_fused;
+
 // ============================================================================
 // Hard Negative Mining (Section from NV-Retriever paper)
 // ============================================================================
@@ -118,25 +124,25 @@ impl HardNegativeMiner {
     }
 
     /// Builder: set minimum number of negatives.
-    pub fn with_min_negatives(mut self, n: usize) -> Self {
+    pub const fn with_min_negatives(mut self, n: usize) -> Self {
         self.min_negatives = n;
         self
     }
 
     /// Builder: set hardness temperature.
-    pub fn with_hardness_temperature(mut self, temp: f32) -> Self {
+    pub const fn with_hardness_temperature(mut self, temp: f32) -> Self {
         self.hardness_temperature = temp;
         self
     }
 
     /// Builder: enable/disable in-batch negatives.
-    pub fn with_in_batch(mut self, use_in_batch: bool) -> Self {
+    pub const fn with_in_batch(mut self, use_in_batch: bool) -> Self {
         self.use_in_batch = use_in_batch;
         self
     }
 
     /// Builder: set fraction of hard negatives.
-    pub fn with_hard_fraction(mut self, frac: f32) -> Self {
+    pub const fn with_hard_fraction(mut self, frac: f32) -> Self {
         self.hard_fraction = frac.clamp(0.0, 1.0);
         self
     }
@@ -164,9 +170,7 @@ impl HardNegativeMiner {
         n_negatives: usize,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Vec<usize> {
-        let [n, d] = embeddings.dims() else {
-            return Vec::new();
-        };
+        let [n, d] = embeddings.dims();
 
         if n < 2 {
             return Vec::new();
@@ -218,7 +222,7 @@ impl HardNegativeMiner {
                 }
                 let sim_to_query = query_sim_data[i];
                 let sim_to_positive = positive_sims[i];
-                let hardness = sim_to_query * (1.0 - sim_to_positive * 0.5); // Softer penalty
+                let hardness = sim_to_query * sim_to_positive.mul_add(-0.5, 1.0); // Softer penalty
                 candidates.push((i, hardness, sim_to_query));
             }
         }
@@ -287,9 +291,7 @@ impl HardNegativeMiner {
         n_negatives: usize,
         device: &burn::backend::wgpu::WgpuDevice,
     ) -> Vec<Vec<usize>> {
-        let [batch_size, d] = queries.dims() else {
-            return Vec::new();
-        };
+        let [batch_size, d] = queries.dims();
 
         let mut all_negatives = Vec::with_capacity(batch_size);
 
@@ -323,29 +325,55 @@ impl HardNegativeMiner {
     }
 
     /// Compute cosine similarities between query and all embeddings.
+    ///
+    /// Uses fused CubeCL kernel when `fused-kernels` feature is enabled.
     fn compute_query_similarities(
         &self,
         query: &Tensor<WgpuBackend, 1>,
         embeddings: &Tensor<WgpuBackend, 2>,
-        device: &burn::backend::wgpu::WgpuDevice,
+        _device: &burn::backend::wgpu::WgpuDevice,
     ) -> Tensor<WgpuBackend, 1> {
-        let [n, d] = embeddings.dims() else {
-            return Tensor::zeros([0], device);
-        };
+        #[cfg(feature = "fused-kernels")]
+        {
+            // Use fused kernel - converts WgpuBackend (Fusion) to CubeWgpuBackend (raw)
+            // Note: This requires tensor data copy, but kernel fusion saves more
+            let query_data: Vec<f32> = query.clone().into_data().to_vec().expect("query to vec");
+            let emb_data: Vec<f32> = embeddings.clone().into_data().to_vec().expect("emb to vec");
+            let [n, d] = embeddings.dims();
+            
+            let device = thrml_core::backend::init_gpu_device();
+            let query_flat: Tensor<CubeWgpuBackend, 1> = 
+                Tensor::from_floats(query_data.as_slice(), &device);
+            let emb_flat: Tensor<CubeWgpuBackend, 1> = 
+                Tensor::from_floats(emb_data.as_slice(), &device);
+            let emb_cube: Tensor<CubeWgpuBackend, 2> = emb_flat.reshape([n, d]);
+            
+            let sims_cube = cosine_similarity_fused(query_flat, emb_cube);
+            
+            // Convert back to WgpuBackend
+            let sims_data: Vec<f32> = sims_cube.into_data().to_vec().expect("sims to vec");
+            let wgpu_device = query.device();
+            Tensor::from_floats(sims_data.as_slice(), &wgpu_device)
+        }
 
-        // Normalize query
-        let query_norm = query.clone().powf_scalar(2.0).sum().sqrt() + 1e-8;
-        let query_normalized = query.clone() / query_norm;
+        #[cfg(not(feature = "fused-kernels"))]
+        {
+            let [n, d] = embeddings.dims();
 
-        // Normalize embeddings
-        let emb_norms = embeddings.clone().powf_scalar(2.0).sum_dim(1).sqrt() + 1e-8;
-        let emb_normalized = embeddings.clone() / emb_norms;
+            // Normalize query
+            let query_norm = query.clone().powf_scalar(2.0).sum().sqrt() + 1e-8;
+            let query_normalized = query.clone() / query_norm;
 
-        // Compute dot products (cosine similarities)
-        let query_2d: Tensor<WgpuBackend, 2> = query_normalized.reshape([1, d as i32]);
-        let sims = query_2d.matmul(emb_normalized.transpose());
+            // Normalize embeddings
+            let emb_norms = embeddings.clone().powf_scalar(2.0).sum_dim(1).sqrt() + 1e-8;
+            let emb_normalized = embeddings.clone() / emb_norms;
 
-        sims.reshape([n as i32])
+            // Compute dot products (cosine similarities)
+            let query_2d: Tensor<WgpuBackend, 2> = query_normalized.reshape([1, d as i32]);
+            let sims = query_2d.matmul(emb_normalized.transpose());
+
+            sims.reshape([n as i32])
+        }
     }
 
     /// Compute similarities of positive embedding to all others.
@@ -428,7 +456,7 @@ impl PersistentParticleBuffer {
     ///
     /// * `n_particles` - Number of fantasy particles to maintain
     /// * `dim` - Embedding dimension
-    pub fn new(n_particles: usize, dim: usize) -> Self {
+    pub const fn new(n_particles: usize, dim: usize) -> Self {
         Self {
             particles: None,
             n_particles,
@@ -441,19 +469,19 @@ impl PersistentParticleBuffer {
     }
 
     /// Builder: set number of Langevin steps per update.
-    pub fn with_langevin_steps(mut self, steps: usize) -> Self {
+    pub const fn with_langevin_steps(mut self, steps: usize) -> Self {
         self.langevin_steps = steps;
         self
     }
 
     /// Builder: set Langevin configuration.
-    pub fn with_langevin_config(mut self, config: LangevinConfig) -> Self {
+    pub const fn with_langevin_config(mut self, config: LangevinConfig) -> Self {
         self.langevin_config = config;
         self
     }
 
     /// Builder: set replay probability.
-    pub fn with_replay_prob(mut self, prob: f32) -> Self {
+    pub const fn with_replay_prob(mut self, prob: f32) -> Self {
         self.replay_prob = prob.clamp(0.0, 1.0);
         self
     }
@@ -467,9 +495,7 @@ impl PersistentParticleBuffer {
         embeddings: &Tensor<WgpuBackend, 2>,
         device: &burn::backend::wgpu::WgpuDevice,
     ) {
-        let [n, d] = embeddings.dims() else {
-            return;
-        };
+        let [n, d] = embeddings.dims();
 
         self.dim = d;
 
@@ -510,12 +536,12 @@ impl PersistentParticleBuffer {
     }
 
     /// Check if buffer is initialized.
-    pub fn is_initialized(&self) -> bool {
+    pub const fn is_initialized(&self) -> bool {
         self.particles.is_some()
     }
 
     /// Get current particles.
-    pub fn get_particles(&self) -> Option<&Tensor<WgpuBackend, 2>> {
+    pub const fn get_particles(&self) -> Option<&Tensor<WgpuBackend, 2>> {
         self.particles.as_ref()
     }
 
@@ -585,7 +611,7 @@ impl PersistentParticleBuffer {
         };
 
         let particle_data: Vec<f32> = particles
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("particles to vec");
@@ -644,7 +670,7 @@ impl PersistentParticleBuffer {
 
         let n_reinit = ((self.n_particles as f32) * fraction).ceil() as usize;
 
-        let mut new_data = particle_data.clone();
+        let mut new_data = particle_data;
         for i in 0..n_reinit {
             let particle_idx = i; // Reinitialize first n_reinit particles
             let data_idx = i % n_data;
@@ -652,9 +678,8 @@ impl PersistentParticleBuffer {
             let p_start = particle_idx * self.dim;
             let d_start = data_idx * self.dim;
 
-            for j in 0..self.dim {
-                new_data[p_start + j] = data_vec[d_start + j];
-            }
+            new_data[p_start..p_start + self.dim]
+                .copy_from_slice(&data_vec[d_start..d_start + self.dim]);
         }
 
         let new_particles_1d: Tensor<WgpuBackend, 1> =
@@ -668,7 +693,7 @@ impl PersistentParticleBuffer {
 // ============================================================================
 
 /// Difficulty level for negative sampling.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NegativeDifficulty {
     /// Random negatives (easiest)
     Easy,
@@ -772,7 +797,7 @@ impl NegativeCurriculumSchedule {
     }
 
     /// Get the current difficulty based on epoch.
-    pub fn get_difficulty(&self, epoch: usize) -> NegativeDifficulty {
+    pub const fn get_difficulty(&self, epoch: usize) -> NegativeDifficulty {
         if epoch < self.medium_start_epoch {
             NegativeDifficulty::Easy
         } else if epoch < self.hard_start_epoch {
@@ -826,7 +851,7 @@ impl NegativeCurriculumSchedule {
     /// # Returns
     ///
     /// Tuple of (min_similarity, max_similarity) for negative selection
-    pub fn get_similarity_bounds(&self, epoch: usize) -> (f32, f32) {
+    pub const fn get_similarity_bounds(&self, epoch: usize) -> (f32, f32) {
         match self.get_difficulty(epoch) {
             NegativeDifficulty::Easy => (0.0, self.easy_similarity_threshold),
             NegativeDifficulty::Medium => (
@@ -952,32 +977,32 @@ impl SGLDNegativeConfig {
     }
 
     /// Builder: set step size.
-    pub fn with_step_size(mut self, step_size: f32) -> Self {
+    pub const fn with_step_size(mut self, step_size: f32) -> Self {
         self.step_size = step_size;
         self
     }
 
     /// Builder: set temperature.
-    pub fn with_temperature(mut self, temp: f32) -> Self {
+    pub const fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = temp;
         self
     }
 
     /// Builder: enable informative initialization.
-    pub fn with_informative_init(mut self, ratio: f32) -> Self {
+    pub const fn with_informative_init(mut self, ratio: f32) -> Self {
         self.informative_init = true;
         self.init_data_ratio = ratio.clamp(0.0, 1.0);
         self
     }
 
     /// Builder: set proximal constraint radius.
-    pub fn with_proximal_radius(mut self, radius: f32) -> Self {
+    pub const fn with_proximal_radius(mut self, radius: f32) -> Self {
         self.proximal_radius = radius;
         self
     }
 
     /// Convert to LangevinConfig.
-    pub fn to_langevin_config(&self) -> LangevinConfig {
+    pub const fn to_langevin_config(&self) -> LangevinConfig {
         LangevinConfig::new(self.step_size, self.temperature).with_gradient_clip(self.gradient_clip)
     }
 }
@@ -1017,7 +1042,7 @@ pub struct SGLDNegativeSampler {
 
 impl SGLDNegativeSampler {
     /// Create new SGLD sampler.
-    pub fn new(config: SGLDNegativeConfig) -> Self {
+    pub const fn new(config: SGLDNegativeConfig) -> Self {
         Self {
             config,
             n_samples: 0,
@@ -1046,9 +1071,7 @@ impl SGLDNegativeSampler {
     where
         F: Fn(&Tensor<WgpuBackend, 2>) -> Tensor<WgpuBackend, 2>,
     {
-        let [n, d] = data_init.dims() else {
-            return Tensor::zeros([batch_size, 1], device);
-        };
+        let [n, d] = data_init.dims();
 
         // Initialize samples
         let init = if self.config.informative_init {

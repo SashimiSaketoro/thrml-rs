@@ -59,19 +59,19 @@ impl Default for NavigatorTrainingConfig {
 
 impl NavigatorTrainingConfig {
     /// Builder: set learning rate.
-    pub fn with_learning_rate(mut self, lr: f32) -> Self {
+    pub const fn with_learning_rate(mut self, lr: f32) -> Self {
         self.learning_rate = lr;
         self
     }
 
     /// Builder: set negatives per positive.
-    pub fn with_negatives(mut self, n: usize) -> Self {
+    pub const fn with_negatives(mut self, n: usize) -> Self {
         self.negatives_per_positive = n;
         self
     }
 
     /// Builder: set momentum.
-    pub fn with_momentum(mut self, m: f32) -> Self {
+    pub const fn with_momentum(mut self, m: f32) -> Self {
         self.momentum = m;
         self
     }
@@ -90,7 +90,7 @@ pub struct TrainingState {
 
 impl TrainingState {
     /// Create initial training state.
-    pub fn new(weights: NavigationWeights) -> Self {
+    pub const fn new(weights: NavigationWeights) -> Self {
         Self {
             weights,
             momentum_buffer: None,
@@ -347,7 +347,7 @@ impl TrainableNavigatorEBM {
         );
 
         if neg_indices.is_empty() {
-            return (0.0, vec![0.0; 5]);
+            return (0.0, vec![0.0; 6]);
         }
 
         // Compute positive energy
@@ -374,13 +374,13 @@ impl TrainableNavigatorEBM {
         );
 
         // Soft-weighted average negative energy
-        let weighted_neg = neg_energies.clone() * soft_weights.clone();
+        let weighted_neg = neg_energies * soft_weights.clone();
         let e_neg_weighted: f32 = weighted_neg.sum().into_data().to_vec().expect("weighted")[0];
 
         // InfoNCE-style loss with soft negatives
         let scaled_e_pos = e_pos / self.config.temperature;
         let scaled_e_neg = e_neg_weighted / self.config.temperature;
-        let loss = scaled_e_pos + (1.0 + (-scaled_e_neg).exp()).ln().max(0.0);
+        let loss = scaled_e_pos + (-scaled_e_neg).exp().ln_1p().max(0.0);
 
         // Gradient estimation (simplified for soft weighting)
         // For full differentiability, would use burn autodiff
@@ -422,6 +422,7 @@ impl TrainableNavigatorEBM {
             0.0, // graph
             ent_pos_val - ent_neg_val,
             0.0, // path
+            0.0, // harmonic
         ];
 
         (loss, gradients)
@@ -450,17 +451,16 @@ impl TrainableNavigatorEBM {
         );
 
         // Get or sample negatives
-        let negatives = match &example.negative_targets {
-            Some(negs) => negs.clone(),
-            None => self.sample_negatives(
+        let negatives = example.negative_targets.clone().unwrap_or_else(|| {
+            self.sample_negatives(
                 &example.query,
                 example.query_radius,
                 example.positive_target,
                 self.config.negatives_per_positive,
                 key,
                 device,
-            ),
-        };
+            )
+        });
 
         // Compute negative energies
         let neg_energies: Vec<f32> = negatives
@@ -490,13 +490,13 @@ impl TrainableNavigatorEBM {
             })
             .sum();
         // Use log1p for numerical stability when sum_exp_neg is small
-        let loss = scaled_e_pos + (1.0 + sum_exp_neg).ln().max(0.0);
+        let loss = scaled_e_pos + sum_exp_neg.ln_1p().max(0.0);
 
         // Collect energy gradients w.r.t. weights
         // For each lambda_i: grad = d(loss)/d(lambda_i) ≈ E_pos_i - avg(E_neg_i)
         // where E_*_i is the i-th energy component
-        let mut energy_components_pos = [0.0f32; 5];
-        let mut energy_components_neg = [0.0f32; 5];
+        let mut energy_components_pos = [0.0f32; 6];
+        let mut energy_components_neg = [0.0f32; 6];
 
         // Compute component energies for positive
         energy_components_pos[0] = self
@@ -564,12 +564,12 @@ impl TrainableNavigatorEBM {
         }
 
         let n_neg = negatives.len().max(1) as f32;
-        for i in 0..5 {
-            energy_components_neg[i] /= n_neg;
+        for e in &mut energy_components_neg {
+            *e /= n_neg;
         }
 
         // Gradient: d(loss)/d(lambda) ≈ component_pos - component_neg
-        let gradients: Vec<f32> = (0..5)
+        let gradients: Vec<f32> = (0..6)
             .map(|i| energy_components_pos[i] - energy_components_neg[i])
             .collect();
 
@@ -604,17 +604,16 @@ impl TrainableNavigatorEBM {
         let coords = self.navigator.sphere_ebm.optimize(key, device);
 
         // Get or sample negatives
-        let negatives = match &example.negative_targets {
-            Some(negs) => negs.clone(),
-            None => self.sample_negatives(
+        let negatives = example.negative_targets.clone().unwrap_or_else(|| {
+            self.sample_negatives(
                 &example.query,
                 example.query_radius,
                 example.positive_target,
                 self.config.negatives_per_positive,
                 key,
                 device,
-            ),
-        };
+            )
+        });
 
         // Batch all targets: [positive] + negatives
         let mut all_targets = vec![example.positive_target];
@@ -638,7 +637,7 @@ impl TrainableNavigatorEBM {
         // Extract energies to CPU for loss computation
         // (Could also do loss on GPU, but keeping gradient computation on CPU for precision)
         let energy_data: Vec<f32> = all_energies
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("energies to vec");
@@ -655,7 +654,7 @@ impl TrainableNavigatorEBM {
                 diff.clamp(-50.0, 50.0).exp()
             })
             .sum();
-        let loss = scaled_e_pos + (1.0 + sum_exp_neg).ln().max(0.0);
+        let loss = scaled_e_pos + sum_exp_neg.ln_1p().max(0.0);
 
         // === GPU-batched component energy computation for gradients ===
         // Compute individual energy components to get gradients w.r.t. lambdas
@@ -708,13 +707,14 @@ impl TrainableNavigatorEBM {
         };
 
         // Gradients: d(loss)/d(lambda) ≈ component_pos - component_neg
-        // Components: [semantic, radial, graph, entropy, path]
+        // Components: [semantic, radial, graph, entropy, path, harmonic]
         let gradients = vec![
             sem_pos_val - sem_neg_val, // semantic
             rad_pos_val - rad_neg_val, // radial
             0.0,                       // graph (computed separately if needed)
             ent_pos_val - ent_neg_val, // entropy
             0.0,                       // path (computed separately if needed)
+            0.0,                       // harmonic
         ];
 
         (loss, gradients)
@@ -738,7 +738,7 @@ impl TrainableNavigatorEBM {
 
         // Accumulate gradients over examples
         let mut total_loss = 0.0f32;
-        let mut total_grads = vec![0.0f32; 5];
+        let mut total_grads = vec![0.0f32; 6];
 
         let keys = key.split(n_examples);
         for (example, k) in examples.iter().zip(keys.into_iter()) {
@@ -748,7 +748,7 @@ impl TrainableNavigatorEBM {
                 self.compute_contrastive_loss(example, k, device)
             };
             total_loss += loss;
-            for i in 0..5 {
+            for i in 0..6 {
                 total_grads[i] += grads[i];
             }
         }
@@ -767,7 +767,7 @@ impl TrainableNavigatorEBM {
             .into_data()
             .to_vec()
             .expect("weights to vec");
-        for i in 0..5 {
+        for i in 0..6 {
             total_grads[i] += self.config.weight_decay * current_data[i];
         }
 
@@ -785,8 +785,8 @@ impl TrainableNavigatorEBM {
 
         let update = if self.config.momentum > 0.0 {
             let momentum_buf = match &self.state.momentum_buffer {
-                Some(buf) => buf.clone() * self.config.momentum + grad_tensor.clone(),
-                None => grad_tensor.clone(),
+                Some(buf) => buf.clone() * self.config.momentum + grad_tensor,
+                None => grad_tensor,
             };
             self.state.momentum_buffer = Some(momentum_buf.clone());
             momentum_buf
@@ -826,13 +826,13 @@ impl TrainableNavigatorEBM {
 
         // Accumulate gradients over examples
         let mut total_loss = 0.0f32;
-        let mut total_grads = vec![0.0f32; 5];
+        let mut total_grads = vec![0.0f32; 6];
 
         let keys = key.split(n_examples);
         for (example, k) in examples.iter().zip(keys.into_iter()) {
             let (loss, grads) = self.compute_contrastive_loss(example, k, device);
             total_loss += loss;
-            for i in 0..5 {
+            for i in 0..6 {
                 total_grads[i] += grads[i];
             }
         }
@@ -850,7 +850,7 @@ impl TrainableNavigatorEBM {
             .into_data()
             .to_vec()
             .expect("weights to vec");
-        for i in 0..5 {
+        for i in 0..6 {
             total_grads[i] += self.config.weight_decay * current_data[i];
         }
 
@@ -868,8 +868,8 @@ impl TrainableNavigatorEBM {
 
         let update = if self.config.momentum > 0.0 {
             let momentum_buf = match &self.state.momentum_buffer {
-                Some(buf) => buf.clone() * self.config.momentum + grad_tensor.clone(),
-                None => grad_tensor.clone(),
+                Some(buf) => buf.clone() * self.config.momentum + grad_tensor,
+                None => grad_tensor,
             };
             self.state.momentum_buffer = Some(momentum_buf.clone());
             momentum_buf
@@ -1037,7 +1037,7 @@ pub struct TrainingDataset {
 
 impl TrainingDataset {
     /// Create a new dataset from train and validation sets.
-    pub fn new(train: Vec<TrainingExample>, validation: Vec<TrainingExample>) -> Self {
+    pub const fn new(train: Vec<TrainingExample>, validation: Vec<TrainingExample>) -> Self {
         Self { train, validation }
     }
 
@@ -1080,17 +1080,17 @@ impl TrainingDataset {
     }
 
     /// Number of training examples.
-    pub fn n_train(&self) -> usize {
+    pub const fn n_train(&self) -> usize {
         self.train.len()
     }
 
     /// Number of validation examples.
-    pub fn n_val(&self) -> usize {
+    pub const fn n_val(&self) -> usize {
         self.validation.len()
     }
 
     /// Total number of examples.
-    pub fn n_total(&self) -> usize {
+    pub const fn n_total(&self) -> usize {
         self.n_train() + self.n_val()
     }
 }
@@ -1232,8 +1232,7 @@ pub fn generate_pairs_from_edges(
         }
     }
 
-    for query_idx in 0..n {
-        let neighbors = &adjacency[query_idx];
+    for (query_idx, neighbors) in adjacency.iter().enumerate().take(n) {
         if neighbors.is_empty() {
             continue;
         }
@@ -1307,19 +1306,19 @@ impl ExtendedTrainingConfig {
     }
 
     /// Builder: set validation frequency.
-    pub fn with_val_every(mut self, epochs: usize) -> Self {
+    pub const fn with_val_every(mut self, epochs: usize) -> Self {
         self.val_every_n_epochs = epochs;
         self
     }
 
     /// Builder: set early stopping patience.
-    pub fn with_early_stopping(mut self, patience: usize) -> Self {
+    pub const fn with_early_stopping(mut self, patience: usize) -> Self {
         self.early_stopping_patience = patience;
         self
     }
 
     /// Builder: set top-k for evaluation.
-    pub fn with_top_k(mut self, k: usize) -> Self {
+    pub const fn with_top_k(mut self, k: usize) -> Self {
         self.top_k_eval = k;
         self
     }
@@ -1547,6 +1546,8 @@ pub struct HyperparamConfig {
     pub lambda_entropy: f32,
     /// Initial weight for path length penalty.
     pub lambda_path: f32,
+    /// Initial weight for harmonic interference energy.
+    pub lambda_harmonic: f32,
 }
 
 impl Default for HyperparamConfig {
@@ -1563,49 +1564,50 @@ impl Default for HyperparamConfig {
             lambda_graph: 0.3,
             lambda_entropy: 0.2,
             lambda_path: 0.1,
+            lambda_harmonic: 0.4,
         }
     }
 }
 
 impl HyperparamConfig {
     /// Builder: set learning rate.
-    pub fn with_learning_rate(mut self, lr: f32) -> Self {
+    pub const fn with_learning_rate(mut self, lr: f32) -> Self {
         self.learning_rate = lr;
         self
     }
 
     /// Builder: set negatives per positive.
-    pub fn with_negatives(mut self, n: usize) -> Self {
+    pub const fn with_negatives(mut self, n: usize) -> Self {
         self.negatives_per_positive = n;
         self
     }
 
     /// Builder: set temperature.
-    pub fn with_temperature(mut self, t: f32) -> Self {
+    pub const fn with_temperature(mut self, t: f32) -> Self {
         self.temperature = t;
         self
     }
 
     /// Builder: set lambda_semantic.
-    pub fn with_lambda_semantic(mut self, v: f32) -> Self {
+    pub const fn with_lambda_semantic(mut self, v: f32) -> Self {
         self.lambda_semantic = v;
         self
     }
 
     /// Builder: set lambda_radial.
-    pub fn with_lambda_radial(mut self, v: f32) -> Self {
+    pub const fn with_lambda_radial(mut self, v: f32) -> Self {
         self.lambda_radial = v;
         self
     }
 
     /// Builder: set lambda_graph.
-    pub fn with_lambda_graph(mut self, v: f32) -> Self {
+    pub const fn with_lambda_graph(mut self, v: f32) -> Self {
         self.lambda_graph = v;
         self
     }
 
     /// Convert to NavigatorTrainingConfig.
-    pub fn to_training_config(&self) -> NavigatorTrainingConfig {
+    pub const fn to_training_config(&self) -> NavigatorTrainingConfig {
         NavigatorTrainingConfig {
             learning_rate: self.learning_rate,
             negatives_per_positive: self.negatives_per_positive,
@@ -1618,13 +1620,14 @@ impl HyperparamConfig {
     }
 
     /// Convert to NavigationWeights.
-    pub fn to_navigation_weights(&self) -> crate::navigator::NavigationWeights {
+    pub const fn to_navigation_weights(&self) -> crate::navigator::NavigationWeights {
         crate::navigator::NavigationWeights {
             lambda_semantic: self.lambda_semantic,
             lambda_radial: self.lambda_radial,
             lambda_graph: self.lambda_graph,
             lambda_entropy: self.lambda_entropy,
             lambda_path: self.lambda_path,
+            lambda_harmonic: self.lambda_harmonic,
             temperature: self.temperature,
         }
     }
@@ -1712,7 +1715,7 @@ impl TuningGrid {
     }
 
     /// Total number of configurations in the grid.
-    pub fn n_combinations(&self) -> usize {
+    pub const fn n_combinations(&self) -> usize {
         self.learning_rates.len()
             * self.negatives.len()
             * self.temperatures.len()
@@ -1809,7 +1812,7 @@ pub struct TuningResult {
 
 impl TuningResult {
     /// Get primary metric (MRR) for comparison.
-    pub fn primary_metric(&self) -> f32 {
+    pub const fn primary_metric(&self) -> f32 {
         self.metrics.mrr
     }
 
@@ -1877,12 +1880,12 @@ impl TuningSession {
     }
 
     /// Number of completed runs.
-    pub fn n_completed(&self) -> usize {
+    pub const fn n_completed(&self) -> usize {
         self.results.len()
     }
 
     /// Number of remaining configs to run.
-    pub fn n_remaining(&self) -> usize {
+    pub const fn n_remaining(&self) -> usize {
         self.grid
             .n_combinations()
             .saturating_sub(self.n_completed())
@@ -2065,7 +2068,7 @@ impl TuningSession {
     }
 
     /// CSV header row.
-    pub fn csv_header() -> &'static str {
+    pub const fn csv_header() -> &'static str {
         "lr,negatives,temp,lambda_sem,lambda_rad,lambda_graph,recall_10,mrr,ndcg_10,loss,epochs,early_stopped"
     }
 
@@ -2177,7 +2180,7 @@ impl TuningSession {
             "  \"best_config_index\": {}",
             best_idx
                 .map(|i| i.to_string())
-                .unwrap_or("null".to_string())
+                .unwrap_or_else(|| "null".to_string())
         )?;
 
         writeln!(file, "}}")?;
@@ -2504,7 +2507,7 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable hard negative mining with custom configuration.
-    pub fn with_hard_negative_miner(
+    pub const fn with_hard_negative_miner(
         mut self,
         miner: crate::contrastive::HardNegativeMiner,
     ) -> Self {
@@ -2513,7 +2516,7 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable Persistent Contrastive Divergence with specified number of particles.
-    pub fn with_pcd(mut self, n_particles: usize) -> Self {
+    pub const fn with_pcd(mut self, n_particles: usize) -> Self {
         self.pcd_n_particles = Some(n_particles);
         self
     }
@@ -2525,7 +2528,7 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable curriculum learning with custom schedule.
-    pub fn with_curriculum_schedule(
+    pub const fn with_curriculum_schedule(
         mut self,
         schedule: crate::contrastive::NegativeCurriculumSchedule,
     ) -> Self {
@@ -2534,31 +2537,31 @@ impl AdvancedTrainingConfig {
     }
 
     /// Enable SGLD for negative phase sampling.
-    pub fn with_sgld(mut self, config: crate::contrastive::SGLDNegativeConfig) -> Self {
+    pub const fn with_sgld(mut self, config: crate::contrastive::SGLDNegativeConfig) -> Self {
         self.sgld_config = Some(config);
         self
     }
 
     /// Set warmup epochs.
-    pub fn with_warmup(mut self, epochs: usize) -> Self {
+    pub const fn with_warmup(mut self, epochs: usize) -> Self {
         self.warmup_epochs = epochs;
         self
     }
 
     /// Enable/disable cosine annealing.
-    pub fn with_cosine_annealing(mut self, enabled: bool) -> Self {
+    pub const fn with_cosine_annealing(mut self, enabled: bool) -> Self {
         self.cosine_annealing = enabled;
         self
     }
 
     /// Set minimum learning rate for annealing.
-    pub fn with_min_lr(mut self, lr: f32) -> Self {
+    pub const fn with_min_lr(mut self, lr: f32) -> Self {
         self.min_lr = lr;
         self
     }
 
     /// Set validation configuration.
-    pub fn with_validation(mut self, config: ExtendedTrainingConfig) -> Self {
+    pub const fn with_validation(mut self, config: ExtendedTrainingConfig) -> Self {
         self.validation = config;
         self
     }
@@ -2578,7 +2581,7 @@ impl AdvancedTrainingConfig {
             let progress = (epoch - self.warmup_epochs) as f32
                 / (total_epochs - self.warmup_epochs).max(1) as f32;
             let cosine_factor = 0.5 * (1.0 + (progress * std::f32::consts::PI).cos());
-            self.min_lr + (base_lr - self.min_lr) * cosine_factor
+            (base_lr - self.min_lr).mul_add(cosine_factor, self.min_lr)
         } else {
             base_lr
         }
@@ -3032,7 +3035,7 @@ mod tests {
 
         // Create a training example
         let query: Tensor<WgpuBackend, 1> =
-            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+            embeddings.slice([0..1, 0..d]).reshape([d]);
         let example = TrainingExample {
             query,
             query_radius: 50.0,
@@ -3367,7 +3370,7 @@ mod tests {
     #[test]
     fn test_tuning_session_new() {
         let grid = TuningGrid::minimal();
-        let session = TuningSession::new(grid.clone());
+        let session = TuningSession::new(grid);
 
         assert_eq!(session.n_completed(), 0);
         assert_eq!(session.n_remaining(), 1);
@@ -3425,7 +3428,7 @@ mod tests {
         let mut session = TuningSession::new(grid);
 
         // Add some results with different MRR values
-        for i in 0..5 {
+        for i in 0..6 {
             let metrics = crate::evaluation::NavigationMetrics {
                 mrr: i as f32 * 0.1,
                 ..Default::default()
@@ -3455,7 +3458,7 @@ mod tests {
 
     #[test]
     fn test_cpu_gpu_energy_equivalence() {
-        use thrml_core::compute::ComputeBackend;
+        
 
         let device = init_gpu_device();
         let n = 10;
@@ -3480,7 +3483,7 @@ mod tests {
 
         // Create query and target indices
         let query: Tensor<WgpuBackend, 1> =
-            embeddings.clone().slice([0..1, 0..d]).reshape([d as i32]);
+            embeddings.slice([0..1, 0..d]).reshape([d]);
         let target_indices_vec: Vec<usize> = vec![1, 2, 3];
         let target_indices_tensor = NavigatorEBM::indices_to_tensor(&target_indices_vec, &device);
 
@@ -3649,7 +3652,7 @@ mod tests {
             embeddings.clone(),
             prominence.clone(),
             None,
-            sphere_config.clone(),
+            sphere_config,
             training_config.clone(),
             &device,
         );
@@ -3660,7 +3663,7 @@ mod tests {
 
         // Benchmark hybrid (GPU-batched) training
         let mut trainable_hybrid = TrainableNavigatorEBM::new(
-            embeddings.clone(),
+            embeddings,
             prominence,
             None,
             sphere_config,

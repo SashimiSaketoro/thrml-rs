@@ -187,7 +187,7 @@ fn main() -> Result<()> {
 
     // Create trainable navigator
     let mut trainable = TrainableNavigatorEBM::from_navigator(
-        thrml_sphere::NavigatorEBM::from_sphere_ebm(sphere_ebm.clone()),
+        thrml_sphere::NavigatorEBM::from_sphere_ebm(sphere_ebm),
         extended_config.base.clone(),
     );
 

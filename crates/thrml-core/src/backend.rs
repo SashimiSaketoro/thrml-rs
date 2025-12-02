@@ -29,8 +29,27 @@
 #[cfg(feature = "gpu")]
 pub use burn::backend::wgpu::WgpuDevice;
 
+/// High-level Wgpu backend for general tensor operations.
+///
+/// This is the standard backend with Burn's fusion optimizer enabled.
+/// Use this for most operations where kernel fusion improves performance.
 #[cfg(feature = "gpu")]
 pub type WgpuBackend = burn::backend::Wgpu;
+
+/// Raw CubeBackend without fusion - for custom CubeCL kernels.
+///
+/// Custom kernels (gumbel_argmax, sigmoid_bernoulli, etc.) require direct
+/// access to CubeTensor, not FusionTensor. Use this type when implementing
+/// or calling custom CubeCL kernels.
+///
+/// Note: Operations on this backend bypass Burn's fusion optimizer.
+#[cfg(feature = "gpu")]
+pub type CubeWgpuBackend = burn_cubecl::CubeBackend<
+    cubecl::wgpu::WgpuRuntime,
+    f32, // FloatElement
+    i32, // IntElement
+    u32, // BoolElement (stored as u32)
+>;
 
 #[cfg(feature = "gpu")]
 pub fn init_gpu_device() -> WgpuDevice {
@@ -112,7 +131,7 @@ pub fn init_cpu_device() -> NdArrayDevice {
 
 /// Check if WGPU backend is available
 #[cfg(feature = "gpu")]
-pub fn is_wgpu_available() -> bool {
+pub const fn is_wgpu_available() -> bool {
     true
 }
 
@@ -123,7 +142,7 @@ pub fn is_wgpu_available() -> bool {
 
 /// Check if CUDA backend is available
 #[cfg(feature = "cuda")]
-pub fn is_cuda_available() -> bool {
+pub const fn is_cuda_available() -> bool {
     true
 }
 
@@ -134,7 +153,7 @@ pub fn is_cuda_available() -> bool {
 
 /// Check if CPU backend is available
 #[cfg(feature = "cpu")]
-pub fn is_cpu_available() -> bool {
+pub const fn is_cpu_available() -> bool {
     true
 }
 

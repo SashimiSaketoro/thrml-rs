@@ -9,6 +9,29 @@
 //! Plus sphere-specific extensions:
 //!
 //! - [`HypergraphEBM`]: Sphere-specific EBM with coherence support
+//!
+//! ## Probabilistic Graph EBM
+//!
+//! For learnable edge energies and Gibbs sampling:
+//!
+//! - [`ProbabilisticGraphEBM`]: Edge energy `E(i,j) = -cos_sim + prominence_bias`
+//! - [`GraphEBMTrainer`]: Contrastive divergence training
+//!
+//! ```rust,ignore
+//! use thrml_sphere::hypergraph::{ProbabilisticGraphEBM, ProbabilisticGraphConfig};
+//!
+//! let config = ProbabilisticGraphConfig::default();
+//! let graph = ProbabilisticGraphEBM::new(embeddings, prominence, &config, &device);
+//!
+//! // Gibbs sample edge configurations
+//! let edge_probs = graph.gibbs_sample_edges(16, &device);
+//!
+//! // Score subgraph coherence for navigation
+//! let log_prob = graph.subgraph_log_prob(&cone_nodes, 4, &device);
+//!
+//! // Detect high-variance edges for overflow
+//! let drifted = graph.detect_high_variance_edges(0.2, 32, &device);
+//! ```
 
 use burn::tensor::Tensor;
 use thrml_core::backend::WgpuBackend;
@@ -16,7 +39,16 @@ use thrml_core::SphericalCoords;
 
 // Re-export from thrml-models with sphere-friendly names
 pub use thrml_models::graph_ebm::{
-    GraphEdge as HypergraphEdge, GraphSidecar as HypergraphSidecar, NodeBiasEBM, SpringEBM,
+    GraphEBMTrainer,
+    GraphEBMTrainerConfig,
+    GraphEBMTrainingState,
+    GraphEdge as HypergraphEdge,
+    GraphSidecar as HypergraphSidecar,
+    NodeBiasEBM,
+    // Probabilistic graph EBM
+    ProbabilisticGraphConfig,
+    ProbabilisticGraphEBM,
+    SpringEBM,
 };
 
 /// Sphere-specific hypergraph EBM with coherence support.
@@ -52,7 +84,7 @@ impl HypergraphEBM {
     }
 
     /// Create with just adjacency matrix.
-    pub fn new(adjacency: Tensor<WgpuBackend, 2>, spring_constant: f32) -> Self {
+    pub const fn new(adjacency: Tensor<WgpuBackend, 2>, spring_constant: f32) -> Self {
         Self {
             spring_ebm: SpringEBM::new(adjacency, spring_constant),
             coherence: None,
@@ -136,7 +168,7 @@ mod tests {
         let adj_data: Vec<f32> = adj.into_data().to_vec().expect("adj to vec");
 
         // Check edge 0-1 is symmetric
-        assert!((adj_data[0 * 4 + 1] - 1.0).abs() < 1e-6);
-        assert!((adj_data[1 * 4 + 0] - 1.0).abs() < 1e-6);
+        assert!((adj_data[1] - 1.0).abs() < 1e-6);
+        assert!((adj_data[4] - 1.0).abs() < 1e-6);
     }
 }

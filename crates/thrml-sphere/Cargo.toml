@@ -1,7 +1,7 @@
 [package]
 name = "thrml-sphere"
 description = "Hyperspherical navigation with ROOTS indexing and multi-cone EBM (experimental)"
-version = "0.0.1"  # Experimental - API will change
+version = "0.3.0"  # Stabilizing - API may still change
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -19,21 +19,31 @@ thrml-samplers = { path = "../thrml-samplers", default-features = false }
 thrml-models = { path = "../thrml-models", default-features = false }
 thrml-kernels = { path = "../thrml-kernels", default-features = false }
 burn = { workspace = true }
-burn-wgpu = { version = "0.19", default-features = false, features = ["autotune"], optional = true }
 ndarray = "0.16"
 ndarray-npy = "0.9"
 safetensors = "0.4"
 anyhow = "1.0"
-ordered-float = "4.2"
 bytemuck = "1.14"
-num_cpus = "1.16"
+# Hypergraph loading from blt-burn SQLite sidecars
+rusqlite = { version = "0.37", features = ["bundled"], optional = true }
+bincode = { version = "2.0.0-rc.3", features = ["serde"], optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+# Memory-mapped file loading for web-scale data
+memmap2 = { version = "0.9", optional = true }
 
 [dev-dependencies]
 rand = "0.8"
 tempfile = "3.10"
 
 [features]
-default = ["gpu"]
-gpu = ["burn/wgpu", "burn-wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-models/gpu", "thrml-kernels/gpu"]
+default = ["gpu", "hypergraph", "fused-kernels"]
+gpu = ["burn/wgpu", "thrml-core/gpu", "thrml-samplers/gpu", "thrml-models/gpu", "thrml-kernels/gpu"]
+# Enable fused CubeCL kernels for L2 normalize and cosine similarity
+fused-kernels = ["gpu"]
+# Enable loading hypergraph sidecars from blt-burn SQLite databases
+hypergraph = ["rusqlite", "bincode", "serde", "serde_json"]
+# Enable memory-mapped file access for datasets larger than RAM
+mmap = ["memmap2", "serde_json"]
 
 

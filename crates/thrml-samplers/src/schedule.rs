@@ -11,8 +11,8 @@ pub struct SamplingSchedule {
 }
 
 impl SamplingSchedule {
-    pub fn new(n_warmup: usize, n_samples: usize, steps_per_sample: usize) -> Self {
-        SamplingSchedule {
+    pub const fn new(n_warmup: usize, n_samples: usize, steps_per_sample: usize) -> Self {
+        Self {
             n_warmup,
             n_samples,
             steps_per_sample,

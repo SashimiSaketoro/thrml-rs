@@ -1,11 +1,12 @@
-// Clippy allows for experimental/research crate
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::needless_range_loop)]
-#![allow(clippy::should_implement_trait)]
-#![allow(clippy::manual_memcpy)]
-#![allow(clippy::get_first)]
-#![allow(clippy::clone_on_copy)]
-#![allow(irrefutable_let_patterns)]
+// Clippy pedantic allows - verified needed 2024-12-01
+#![allow(clippy::doc_markdown)] // Technical terms (BLT, ROOTS, etc.)
+#![allow(clippy::must_use_candidate)] // Many getters
+// Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)] // Acceptable in ML contexts
+#![allow(clippy::cast_possible_wrap)] // Handled carefully
+#![allow(clippy::similar_names)] // Intentional variable naming
+#![allow(clippy::too_many_arguments)] // Complex sphere/navigation functions
 
 //! # thrml-sphere
 //!
@@ -289,9 +290,14 @@
 pub mod compute;
 pub mod config;
 pub mod contrastive;
+pub mod double_float;
+pub mod energy_head;
 pub mod evaluation;
 pub mod hamiltonian;
+pub mod harmonic_navigator;
 pub mod hypergraph;
+#[cfg(feature = "hypergraph")]
+pub mod hypergraph_loader;
 pub mod langevin;
 pub mod lasing;
 pub mod loader;
@@ -299,14 +305,20 @@ pub mod navigator;
 pub mod roots;
 pub mod similarity;
 pub mod sphere_ebm;
+pub mod spherical_harmonics;
 pub mod training;
 
 pub use compute::*;
 pub use config::*;
 pub use contrastive::*;
+pub use double_float::*;
+pub use energy_head::*;
 pub use evaluation::*;
 pub use hamiltonian::*;
+pub use harmonic_navigator::*;
 pub use hypergraph::*;
+#[cfg(feature = "hypergraph")]
+pub use hypergraph_loader::*;
 pub use langevin::*;
 pub use lasing::*;
 pub use loader::*;
@@ -314,16 +326,20 @@ pub use navigator::*;
 pub use roots::*;
 pub use similarity::*;
 pub use sphere_ebm::*;
+pub use spherical_harmonics::*;
 pub use training::*;
 
 // Re-export key types from nested modules for convenience
 pub use compute::substring::SubstringConfig;
+pub use roots::FlatTreeNode; // H-ROOTS tree serialization
 
 // Re-export hardware tier types from thrml-core for RuntimeConfig users
 pub use thrml_core::compute::{HardwareTier, PrecisionProfile, RuntimePolicy};
 
 // Re-export generalized primitives from thrml-core and thrml-samplers
 // These can be used directly or as building blocks for sphere-specific APIs
-pub use thrml_core::metrics::{evaluate_retrieval, RetrievalMetrics};
+pub use thrml_core::metrics::{
+    evaluate_retrieval, find_rank, mrr, ndcg, ndcg_multi, recall_at_k, RetrievalMetrics,
+};
 pub use thrml_core::text::{ngram_hashes, RollingHash, TextSimilarityConfig};
 pub use thrml_samplers::maxcut::{cut_value, maxcut_gibbs, maxcut_multistart};

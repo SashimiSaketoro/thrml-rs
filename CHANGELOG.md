@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-12-02
+
+Code quality improvements and kernel restoration.
+
+### Added
+
+#### Spherical Harmonics (`thrml-sphere`)
+- `SphericalHarmonicsBasis` - Precomputed Y_l^m basis on Driscoll-Healy grid
+- `HarmonicNavigator` - Frequency-domain navigation using SH superposition
+- `forward_sht()` / `inverse_sht()` - Spherical harmonic transform pair
+- `superposition_field()` - Wave interference pattern computation
+- Integration with ROOTS and hypergraph for unified navigation
+
+#### Fused Kernels (`thrml-kernels`)
+- `cosine_similarity_fused` - Single-kernel cosine similarity (restored)
+- `cosine_similarity_fused_batched` - Batched query-to-vectors similarity
+- `cosine_similarity_prenormalized` - Optimized for pre-normalized vectors
+- `l2_normalize_fused` - Single-kernel L2 row normalization (restored)
+- `launch_l2_normalize_with_norms` - Returns norms alongside normalized output
+- CubeCL kernels with `#[comptime]` parameters for compile-time optimization
+
+#### API Improvements
+- `FromStr` trait implementation for `ScaleProfile`
+- `EdgeBatch` type alias for cleaner graph training APIs
+- Boxed large enum variants (`SimilarityStorage::Dense`, `RootsNode::Leaf`)
+
+### Changed
+
+#### Code Quality
+- Enabled `clippy::pedantic` with documented allows
+- Applied `clippy::nursery` fixes (~370 warnings resolved):
+  - `missing_const_for_fn` - functions marked `const` where applicable
+  - `use_self` - replaced type names with `Self`
+  - `option_if_let_else` - converted simple cases to `map_or`/`map_or_else`
+  - `or_fun_call` - lazy evaluation with `or_else`/`unwrap_or_else`
+  - `significant_drop_tightening` - earlier MutexGuard drops
+- Replaced manual `as` casts with `mul_add()` for numeric accuracy
+- Iterator-based loops replace index loops where appropriate
+- `copy_from_slice()` replaces manual memcpy loops
+- Fixed all rustdoc `invalid_html_tags` warnings (bracket escaping in doc comments)
+
+### Fixed
+- Memory optimization: `RootsNode` enum reduced from 2200 to ~64 bytes
+- Memory optimization: `SimilarityStorage` enum reduced from 280 to ~72 bytes
+
+---
+
 ## [0.1.0] - 2025-11-25
 
 ### Initial Release
@@ -72,7 +119,10 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - Native Apple Silicon (M1/M2/M3/M4) support via Metal
 - Comprehensive test suite with GPU smoke tests
 
-## [Unreleased]
+## [0.2.0] - 2025-12-01
+
+Major feature additions including sphere optimization, hardware-aware routing, and precision control.
+(Note: This section should be above [0.1.0] in the file - will be reordered in next release)
 
 ### Added
 
@@ -206,9 +256,3 @@ CD variants:
 - Clippy lint for `is_multiple_of()` usage
 - Unused `mut` warning in `available_backends()` when no features enabled
 - Feature flag configuration allowing true CPU-only builds
-
-### Planned
-
-- Performance benchmarks
-- Python bindings via PyO3
-- Additional optimization passes

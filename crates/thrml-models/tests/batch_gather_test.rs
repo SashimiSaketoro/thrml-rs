@@ -11,7 +11,7 @@ pub fn batch_gather_2d_gather(
     // gather expects indices to have same shape as input except at gather dimension
     // For [batch, dim1] with indices [batch], we need indices shape [batch, 1]
     let indices_expanded: Tensor<WgpuBackend, 2, burn::tensor::Int> =
-        indices.clone().unsqueeze_dim::<2>(1); // [batch] -> [batch, 1]
+        indices.unsqueeze_dim::<2>(1); // [batch] -> [batch, 1]
     let gathered: Tensor<WgpuBackend, 2> = weights.gather(1, indices_expanded);
     // Gather should give us [batch, 1], squeeze to [batch]
     gathered.squeeze_dim(1)
@@ -92,7 +92,7 @@ pub fn batch_gather_3d_linear(
     let stride1_tensor = Tensor::from_data(vec![stride1 as i32; batch_size].as_slice(), &device);
 
     let linear_indices =
-        batch_indices * stride0_tensor + indices0.clone() * stride1_tensor + indices1;
+        batch_indices * stride0_tensor + indices0 * stride1_tensor + indices1;
 
     // Flatten weights to 1D and select
     let total_size = batch_size * dim1_size * dim2_size;
@@ -136,7 +136,7 @@ mod tests {
         println!("Gather result dims: {:?}", result_gather.dims());
 
         // Test linear approach
-        let result_lin = batch_gather_2d_linear(weights.clone(), indices.clone());
+        let result_lin = batch_gather_2d_linear(weights, indices);
         println!("Linear result dims: {:?}", result_lin.dims());
 
         // Both should give [4] shape
@@ -145,12 +145,12 @@ mod tests {
 
         // Read back and compare values (clone before into_data since it takes ownership)
         let data_gather: Vec<f32> = result_gather
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("Failed to read tensor data");
         let data_lin: Vec<f32> = result_lin
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("Failed to read tensor data");
@@ -235,7 +235,7 @@ mod tests {
 
         // Test linear
         let result_lin =
-            batch_gather_3d_linear(weights.clone(), indices0.clone(), indices1.clone());
+            batch_gather_3d_linear(weights, indices0, indices1);
         println!("Linear result dims: {:?}", result_lin.dims());
 
         let data_gather: Vec<f32> = result_gather
@@ -244,7 +244,7 @@ mod tests {
             .to_vec()
             .expect("Failed to read tensor data");
         let data_lin: Vec<f32> = result_lin
-            .clone()
+            
             .into_data()
             .to_vec()
             .expect("Failed to read tensor data");

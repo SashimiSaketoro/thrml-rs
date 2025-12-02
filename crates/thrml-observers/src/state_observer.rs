@@ -14,8 +14,8 @@ pub struct StateObserver {
 }
 
 impl StateObserver {
-    pub fn new(blocks_to_sample: Vec<Block>) -> Self {
-        StateObserver { blocks_to_sample }
+    pub const fn new(blocks_to_sample: Vec<Block>) -> Self {
+        Self { blocks_to_sample }
     }
 }
 

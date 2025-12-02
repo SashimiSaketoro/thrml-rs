@@ -183,7 +183,7 @@ fn test_op_type_routing() {
 
     println!("✓ OpType routing on Apple Silicon:");
     for (op, name) in &ops_to_check {
-        let uses_cpu = apple.use_cpu(op.clone(), None);
+        let uses_cpu = apple.use_cpu(*op, None);
         println!("  {} → CPU: {}", name, uses_cpu);
         assert!(uses_cpu, "{} should route to CPU on Apple Silicon", name);
     }

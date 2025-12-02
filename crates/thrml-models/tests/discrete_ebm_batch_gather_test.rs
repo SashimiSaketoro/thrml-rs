@@ -80,7 +80,7 @@ fn test_batch_gather_2d() {
     // batch 1: weights[1, 1, 0] = 5.0
     // batch 2: weights[2, 2, 0] = 9.0
     // batch 3: weights[3, 0, 0] = 10.0
-    let expected = vec![1.0, 5.0, 9.0, 10.0];
+    let expected = [1.0, 5.0, 9.0, 10.0];
 
     assert_eq!(result.dims(), [4]);
     for (i, (got, exp)) in data.iter().zip(expected.iter()).enumerate() {

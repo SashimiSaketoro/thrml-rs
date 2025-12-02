@@ -45,8 +45,8 @@ pub struct DiscreteEBMInteraction {
 }
 
 impl DiscreteEBMInteraction {
-    pub fn new(n_spin: usize, weights: Tensor<WgpuBackend, 3>) -> Self {
-        DiscreteEBMInteraction { n_spin, weights }
+    pub const fn new(n_spin: usize, weights: Tensor<WgpuBackend, 3>) -> Self {
+        Self { n_spin, weights }
     }
 }
 
@@ -156,7 +156,7 @@ pub fn batch_gather(
             .collect();
         let indices_2d: Tensor<WgpuBackend, 2, burn::tensor::Int> = Tensor::cat(indices_stacked, 1);
 
-        return batch_gather_fused(weights.clone(), indices_2d, &strides, batch_stride);
+        batch_gather_fused(weights.clone(), indices_2d, &strides, batch_stride)
     }
 
     // Default implementation: standard tensor operations
@@ -305,7 +305,7 @@ impl DiscreteEBMFactor {
     ) -> Result<Self, String> {
         // Validate that all node groups have the same length
         let n_nodes =
-            if let Some(first) = spin_node_groups.first().or(categorical_node_groups.first()) {
+            if let Some(first) = spin_node_groups.first().or_else(|| categorical_node_groups.first()) {
                 first.len()
             } else {
                 return Err("At least one node group must be provided".to_string());
@@ -352,7 +352,7 @@ impl DiscreteEBMFactor {
             ));
         }
 
-        Ok(DiscreteEBMFactor {
+        Ok(Self {
             spin_node_groups,
             categorical_node_groups,
             weights,
@@ -671,7 +671,7 @@ impl DiscreteEBMFactor {
             for spin_vec in &spin_data {
                 for (i, &s) in spin_vec.iter().enumerate() {
                     // Convert 0/1 to -1/+1
-                    let spin_val = 2.0 * (s as f64) - 1.0;
+                    let spin_val = 2.0f64.mul_add(s as f64, -1.0);
                     prod[i] *= spin_val;
                 }
             }
@@ -744,10 +744,10 @@ pub struct SpinEBMFactor {
 impl SpinEBMFactor {
     pub fn new(node_groups: Vec<Block>, weights: Tensor<WgpuBackend, 3>) -> Result<Self, String> {
         let inner = DiscreteEBMFactor::new(node_groups, vec![], weights)?;
-        Ok(SpinEBMFactor { inner })
+        Ok(Self { inner })
     }
 
-    pub fn inner(&self) -> &DiscreteEBMFactor {
+    pub const fn inner(&self) -> &DiscreteEBMFactor {
         &self.inner
     }
 }
@@ -801,10 +801,10 @@ pub struct CategoricalEBMFactor {
 impl CategoricalEBMFactor {
     pub fn new(node_groups: Vec<Block>, weights: Tensor<WgpuBackend, 3>) -> Result<Self, String> {
         let inner = DiscreteEBMFactor::new(vec![], node_groups, weights)?;
-        Ok(CategoricalEBMFactor { inner })
+        Ok(Self { inner })
     }
 
-    pub fn inner(&self) -> &DiscreteEBMFactor {
+    pub const fn inner(&self) -> &DiscreteEBMFactor {
         &self.inner
     }
 }
@@ -875,10 +875,10 @@ impl SquareDiscreteEBMFactor {
         }
 
         let inner = DiscreteEBMFactor::new(spin_node_groups, categorical_node_groups, weights)?;
-        Ok(SquareDiscreteEBMFactor { inner })
+        Ok(Self { inner })
     }
 
-    pub fn inner(&self) -> &DiscreteEBMFactor {
+    pub const fn inner(&self) -> &DiscreteEBMFactor {
         &self.inner
     }
 }
@@ -1017,7 +1017,7 @@ pub struct SquareCategoricalEBMFactor {
 impl SquareCategoricalEBMFactor {
     pub fn new(node_groups: Vec<Block>, weights: Tensor<WgpuBackend, 3>) -> Result<Self, String> {
         let inner = SquareDiscreteEBMFactor::new(vec![], node_groups, weights)?;
-        Ok(SquareCategoricalEBMFactor { inner })
+        Ok(Self { inner })
     }
 }
 

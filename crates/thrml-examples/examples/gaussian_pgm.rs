@@ -138,7 +138,7 @@ fn main() {
     key = key2;
     let mean_vec: Tensor<WgpuBackend, 1> =
         Tensor::random([n_nodes], Distribution::Normal(0.0, 1.0), &device);
-    let mean_data: Vec<f32> = mean_vec.clone().into_data().to_vec().expect("read mean");
+    let mean_data: Vec<f32> = mean_vec.into_data().to_vec().expect("read mean");
 
     // Compute bias: b = -A * mu
     let mut bias_data = vec![0.0f32; n_nodes];
@@ -167,7 +167,7 @@ fn main() {
 
     // 1. Quadratic factor (diagonal of precision matrix) - for variance
     // We need 1/A_ii (inverse variance)
-    let inverse_diag: Tensor<WgpuBackend, 1> = diag.clone().recip();
+    let inverse_diag: Tensor<WgpuBackend, 1> = diag.recip();
     let inverse_diag_2d: Tensor<WgpuBackend, 2> = inverse_diag.reshape([n_nodes as i32, 1]);
 
     let quadratic_ig = InteractionGroup::with_data(
@@ -186,7 +186,7 @@ fn main() {
 
     let linear_ig = InteractionGroup::with_data(
         InteractionData::Linear { weights: bias_2d },
-        block_all.clone(),
+        block_all,
         vec![],
         0,
     )
@@ -194,7 +194,7 @@ fn main() {
     interaction_groups.push(linear_ig);
 
     // 3. Coupling factors (off-diagonal precision) - i -> j and j -> i
-    let off_diag_2d: Tensor<WgpuBackend, 2> = off_diag.clone().reshape([n_edges as i32, 1]);
+    let off_diag_2d: Tensor<WgpuBackend, 2> = off_diag.reshape([n_edges as i32, 1]);
 
     // i -> j coupling
     let coupling_ig1 = InteractionGroup::with_data(
@@ -213,8 +213,8 @@ fn main() {
         InteractionData::Linear {
             weights: off_diag_2d,
         },
-        edge_block_j.clone(),
-        vec![edge_block_i.clone()],
+        edge_block_j,
+        vec![edge_block_i],
         0,
     )
     .expect("create coupling interaction group 2");
@@ -223,7 +223,7 @@ fn main() {
     println!("Created {} interaction groups", interaction_groups.len());
 
     // Create block spec
-    let free_super_blocks = vec![vec![block0.clone()], vec![block1.clone()]];
+    let free_super_blocks = vec![vec![block0], vec![block1]];
     let clamped_blocks = vec![];
 
     let mut node_shape_dtypes = IndexMap::new();
@@ -366,7 +366,7 @@ fn main() {
     let mut sampled_covs = vec![0.0f32; n_edges];
     for edge_idx in 0..n_edges {
         sampled_covs[edge_idx] =
-            product_moments[edge_idx] - first_moments[edge_idx] * second_moments[edge_idx];
+            first_moments[edge_idx].mul_add(-second_moments[edge_idx], product_moments[edge_idx]);
     }
 
     println!("\nComputing theoretical covariances...");

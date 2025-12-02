@@ -176,7 +176,7 @@ impl PathConfig {
         // Determine base directory
         let base_dir = args
             .base_dir
-            .or(file_config.base_dir.clone())
+            .or_else(|| file_config.base_dir.clone())
             .or_else(|| env::var("THRML_BASE_DIR").ok().map(PathBuf::from));
 
         // Build paths with priority: CLI > env > file > defaults
@@ -200,7 +200,7 @@ impl PathConfig {
             .or(file_config.output_dir)
             .unwrap_or(defaults.2);
 
-        PathConfig {
+        Self {
             cache_dir,
             data_dir,
             output_dir,
@@ -238,14 +238,14 @@ impl PathConfig {
     /// Get the global configuration instance
     ///
     /// Initializes with defaults on first call. Use `set_global` to customize.
-    pub fn global() -> &'static PathConfig {
-        GLOBAL_CONFIG.get_or_init(PathConfig::from_args_relaxed)
+    pub fn global() -> &'static Self {
+        GLOBAL_CONFIG.get_or_init(Self::from_args_relaxed)
     }
 
     /// Set the global configuration
     ///
     /// Returns Err if already initialized
-    pub fn set_global(config: PathConfig) -> Result<(), PathConfig> {
+    pub fn set_global(config: Self) -> Result<(), Self> {
         GLOBAL_CONFIG.set(config)
     }
 
@@ -331,7 +331,7 @@ impl PathConfig {
 impl Default for PathConfig {
     fn default() -> Self {
         let (cache, data, output) = Self::default_dirs();
-        PathConfig {
+        Self {
             cache_dir: cache,
             data_dir: data,
             output_dir: output,
@@ -381,11 +381,12 @@ impl PathConfigBuilder {
     pub fn build(self) -> PathConfig {
         let defaults = PathConfig::default_dirs();
 
-        let (cache_default, data_default, output_default) = if let Some(base) = &self.base_dir {
-            (base.join("cache"), base.join("data"), base.join("output"))
-        } else {
-            defaults
-        };
+        let (cache_default, data_default, output_default) = self
+            .base_dir
+            .as_ref()
+            .map_or(defaults, |base| {
+                (base.join("cache"), base.join("data"), base.join("output"))
+            });
 
         PathConfig {
             cache_dir: self.cache_dir.unwrap_or(cache_default),

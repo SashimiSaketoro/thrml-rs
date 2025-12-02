@@ -293,25 +293,51 @@ Backend selection strategy for compute operations.
 
 ```rust
 pub enum ComputeBackend {
-    /// Always use GPU (default for most operations)
-    GpuOnly { device: Option<WgpuDevice> },
-    /// Always use CPU (for precision-sensitive ops)
+    /// All operations on GPU (discrete GPU systems)
+    GpuOnly,
+    /// All operations on CPU (fallback, highest precision)
     CpuOnly,
-    /// Unified memory: share data between CPU/GPU without copies
-    UnifiedHybrid { threshold_bytes: usize },
-    /// Runtime decision based on operation type and data size
-    Adaptive { threshold_ops: usize },
+    /// Hybrid: precision ops on CPU, bulk ops on GPU
+    /// Optimal for unified memory (Apple Silicon, AMD APU)
+    UnifiedHybrid {
+        cpu_ops: Vec<OpType>,
+        small_matmul_threshold: usize,
+    },
+    /// Adaptive: automatically route based on op type
+    Adaptive,
 }
 
 impl ComputeBackend {
-    /// Auto-detect Apple Silicon unified memory
+    /// Auto-detect: hybrid on macOS, adaptive elsewhere
+    pub fn default() -> Self;
+    
+    /// Optimized for Apple Silicon (M1-M4)
     pub fn apple_silicon() -> Self;
     
-    /// Check if operation should use CPU path
-    pub fn use_cpu(&self, op_type: OpType, size_hint: Option<usize>) -> bool;
-    
-    /// Create GPU-only backend with device
+    /// GPU-only backend
     pub fn gpu_only() -> Self;
+    
+    /// CPU-only backend
+    pub fn cpu_only() -> Self;
+    
+    /// Custom hybrid configuration
+    pub fn hybrid(cpu_ops: Vec<OpType>, threshold: usize) -> Self;
+    
+    /// Check if operation should use CPU
+    pub fn use_cpu(&self, op: OpType, size: Option<usize>) -> bool;
+    
+    /// Check if operation should use GPU
+    pub fn use_gpu(&self, op: OpType, size: Option<usize>) -> bool;
+    
+    /// Try GPU with automatic CPU fallback + notification
+    pub fn try_gpu_with_fallback<T, E, F, G>(
+        &self, gpu_fn: F, cpu_fn: G, op_name: &str,
+    ) -> (T, bool);
+    
+    /// Run operation based on routing decision
+    pub fn run_routed<T, F, G>(
+        &self, op: OpType, size: Option<usize>, gpu_fn: F, cpu_fn: G,
+    ) -> T;
 }
 ```
 
@@ -320,15 +346,23 @@ impl ComputeBackend {
 ```rust
 use thrml_core::{ComputeBackend, OpType};
 
-// Auto-detect Apple Silicon
-let backend = ComputeBackend::apple_silicon();
+// Auto-detect backend (hybrid on macOS, adaptive elsewhere)
+let backend = ComputeBackend::default();
 
 // Route precision-sensitive operations to CPU
-if backend.use_cpu(OpType::IsingSampling, Some(1000)) {
+if backend.use_cpu(OpType::GradientCompute, Some(1000)) {
     // Use CPU f64 implementation
 } else {
     // Use GPU f32 implementation
 }
+
+// Use routing helper
+let result = backend.run_routed(
+    OpType::BatchEnergyForward,
+    Some(batch_size),
+    || gpu_energy_compute(&tensor),
+    || cpu_energy_compute(&data),
+);
 ```
 
 ### `OpType`
@@ -337,20 +371,32 @@ Operation classification for routing decisions.
 
 ```rust
 pub enum OpType {
-    /// Ising partition function / sampling (benefits from f64)
-    IsingSampling,
-    /// Energy computation (usually fine with f32)
-    EnergyCompute,
-    /// Small matrix operations (overhead not worth GPU)
-    SmallMatmul,
-    /// Langevin dynamics (precision helps stability)
-    LangevinStep,
-    /// Similarity computation (fine with f32)
-    SimilarityCompute,
-    /// Large batch operations (GPU wins)
-    LargeBatch,
+    // Precision-sensitive ops (prefer CPU f64)
+    IsingSampling,          // Gibbs sampling, max-cut
+    SphericalHarmonics,     // Requires f64 for band limits > 64
+    ArcTrig,                // Sensitive near poles
+    ComplexArithmetic,      // Phase accumulation
+    GradientCompute,        // f32 accumulation can overflow
+    LossReduction,          // logsumexp needs f64 for large batches
+    
+    // GPU-friendly ops (f32 is fine)
+    SmallMatmul,            // Below threshold, CPU overhead wins
+    Similarity,             // Highly parallel
+    LargeMatmul,            // Bulk compute
+    EnergyCompute,          // Parallel over points
+    LangevinStep,           // GPU with periodic renorm
+    BatchEnergyForward,     // Batched training forward pass
 }
 ```
+
+**Routing on Different Hardware:**
+
+| Hardware | Default Backend | f64 Support | Precision Ops |
+|----------|-----------------|-------------|---------------|
+| Apple Silicon | UnifiedHybrid | No (Metal) | Route to CPU |
+| NVIDIA | Adaptive | Yes (CUDA) | Can stay on GPU |
+| AMD RDNA | Adaptive | No | Route to CPU |
+| CPU-only | CpuOnly | Yes | All on CPU |
 
 ### `PrecisionMode`
 
@@ -364,16 +410,20 @@ pub enum PrecisionMode {
     CpuPrecise,
     /// Adaptive based on operation characteristics
     Adaptive {
-        small_angle_threshold: f32,
-        langevin_renorm_interval: usize,
+        sh_band_limit_threshold: usize,  // Max L before f64
+        small_angle_threshold: f32,       // Min angle for Haversine
+        langevin_renorm_interval: usize,  // Steps between renorm
     },
 }
 
 impl PrecisionMode {
-    /// Check if angle is small enough to need precision
-    pub fn needs_precision(&self, angle: f32) -> bool;
+    /// Should use f64 for spherical harmonics at this band limit?
+    pub fn use_f64_for_sh(&self, band_limit: usize) -> bool;
     
-    /// Check if Langevin should renormalize at this step
+    /// Should use Haversine formula for this angle?
+    pub fn use_haversine(&self, angle: f32) -> bool;
+    
+    /// Should re-normalize Langevin at this step?
     pub fn should_renormalize(&self, step: usize) -> bool;
 }
 ```
@@ -386,14 +436,16 @@ Combined backend + precision configuration.
 pub struct HybridConfig {
     pub backend: ComputeBackend,
     pub precision: PrecisionMode,
+    pub cpu_threads: usize,
+    pub enable_overlap: bool,
 }
 
 impl HybridConfig {
     /// Default for Apple Silicon (unified memory + adaptive precision)
     pub fn apple_silicon() -> Self;
     
-    /// Default for discrete GPU systems
-    pub fn discrete_gpu() -> Self;
+    /// Default for discrete NVIDIA GPU systems
+    pub fn nvidia_discrete() -> Self;
     
     /// CPU-only configuration
     pub fn cpu_only() -> Self;
@@ -408,8 +460,8 @@ use thrml_core::HybridConfig;
 // Configure for Apple Silicon M1-M4
 let config = HybridConfig::apple_silicon();
 
-// Or for NVIDIA/AMD discrete GPUs
-let config = HybridConfig::discrete_gpu();
+// Or for NVIDIA discrete GPUs
+let config = HybridConfig::nvidia_discrete();
 ```
 
 ### `RuntimePolicy`
@@ -475,8 +527,8 @@ use thrml_core::compute::{test_both_backends, recommended_tolerance};
 
 // Test function on both CPU and GPU backends
 test_both_backends(|backend| {
-    let result = my_computation(backend);
-    let tolerance = recommended_tolerance(backend);
+    let tolerance = recommended_tolerance(backend, OpType::EnergyCompute);
+    // CPU: 1e-10, GPU: 1e-3
     assert!((result - expected).abs() < tolerance);
 });
 ```

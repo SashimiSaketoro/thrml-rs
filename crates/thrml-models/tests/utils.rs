@@ -99,12 +99,12 @@ pub fn generate_all_states_bin_cat(
     let mut cat_expanded_data = Vec::new();
 
     let bin_data: Vec<f32> = bin_states
-        .clone()
+        
         .into_data()
         .to_vec()
         .expect("read bin data");
     let cat_data: Vec<i32> = cat_states
-        .clone()
+        
         .into_data()
         .to_vec()
         .expect("read cat data");

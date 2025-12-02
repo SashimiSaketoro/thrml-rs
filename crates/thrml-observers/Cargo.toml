@@ -14,7 +14,7 @@ categories = ["science", "simulation"]
 rust-version.workspace = true
 
 [dependencies]
-thrml-core = { path = "../thrml-core" }
+thrml-core = { path = "../thrml-core", default-features = false }
 burn = { workspace = true }
 burn-tensor = { workspace = true }
 burn-wgpu = { workspace = true, optional = true }

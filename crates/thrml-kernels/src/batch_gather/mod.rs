@@ -20,7 +20,7 @@ pub use forward::launch_batch_gather;
 mod tests {
     use super::*;
     use burn::tensor::{Distribution, Tensor};
-    use thrml_core::backend::{init_gpu_device, WgpuBackend};
+    use thrml_core::backend::{init_gpu_device, CubeWgpuBackend};
 
     #[test]
     fn test_batch_gather_basic() {
@@ -31,24 +31,24 @@ mod tests {
         let dim = 8;
 
         // Create test weights
-        let weights: Tensor<WgpuBackend, 3> =
+        let weights: Tensor<CubeWgpuBackend, 3> =
             Tensor::random([n_nodes, k, dim], Distribution::Normal(0.0, 1.0), &device);
 
         // Create random indices within bounds - need to floor them
-        let k_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+        let k_indices_float: Tensor<CubeWgpuBackend, 2> = Tensor::random(
             [n_nodes, 1],
             Distribution::Uniform(0.0, (k - 1) as f64),
             &device,
         );
-        let dim_indices_float: Tensor<WgpuBackend, 2> = Tensor::random(
+        let dim_indices_float: Tensor<CubeWgpuBackend, 2> = Tensor::random(
             [n_nodes, 1],
             Distribution::Uniform(0.0, (dim - 1) as f64),
             &device,
         );
 
         // Floor and convert to int
-        let k_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = k_indices_float.int();
-        let dim_indices: Tensor<WgpuBackend, 2, burn::tensor::Int> = dim_indices_float.int();
+        let k_indices: Tensor<CubeWgpuBackend, 2, burn::tensor::Int> = k_indices_float.int();
+        let dim_indices: Tensor<CubeWgpuBackend, 2, burn::tensor::Int> = dim_indices_float.int();
 
         let indices = Tensor::cat(vec![k_indices, dim_indices], 1);
 

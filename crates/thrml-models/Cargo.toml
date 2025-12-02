@@ -14,7 +14,7 @@ categories = ["science", "simulation", "mathematics"]
 rust-version.workspace = true
 
 [dependencies]
-thrml-core = { path = "../thrml-core" }
+thrml-core = { path = "../thrml-core", default-features = false }
 thrml-samplers = { path = "../thrml-samplers" }
 thrml-observers = { path = "../thrml-observers" }
 thrml-kernels = { path = "../thrml-kernels", optional = true }

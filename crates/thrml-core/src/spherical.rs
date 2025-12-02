@@ -50,7 +50,7 @@ impl SphericalCoords {
     /// * `r` - Radial distances \[N\]
     /// * `theta` - Polar angles \[N\]
     /// * `phi` - Azimuthal angles \[N\]
-    pub fn new(
+    pub const fn new(
         r: Tensor<WgpuBackend, 1>,
         theta: Tensor<WgpuBackend, 1>,
         phi: Tensor<WgpuBackend, 1>,
@@ -123,7 +123,7 @@ impl SphericalCoords {
         let u_data: Vec<f32> = u.into_data().to_vec().expect("u to vec");
         let theta_data: Vec<f32> = u_data
             .iter()
-            .map(|&u_val| (1.0 - 2.0 * u_val).clamp(-1.0, 1.0).acos())
+            .map(|&u_val| 2.0f32.mul_add(-u_val, 1.0).clamp(-1.0, 1.0).acos())
             .collect();
         let theta = Tensor::from_data(theta_data.as_slice(), device);
 
@@ -169,7 +169,7 @@ impl SphericalCoords {
         // Extract x, y, z columns - use reshape instead of squeeze
         let x_2d = cart.clone().slice([0..n, 0..1]);
         let y_2d = cart.clone().slice([0..n, 1..2]);
-        let z_2d = cart.clone().slice([0..n, 2..3]);
+        let z_2d = cart.slice([0..n, 2..3]);
 
         // Flatten to 1D
         let x: Tensor<WgpuBackend, 1> = x_2d.reshape([n as i32]);
@@ -227,8 +227,8 @@ impl SphericalCoords {
 
         // For pairwise: sin(θi)*sin(θj) and cos(θi)*cos(θj)
         // Use outer products: sin_theta @ sin_theta^T
-        let sin_t_2d = sin_theta.clone().reshape([n as i32, 1]);
-        let cos_t_2d = cos_theta.clone().reshape([n as i32, 1]);
+        let sin_t_2d = sin_theta.reshape([n as i32, 1]);
+        let cos_t_2d = cos_theta.reshape([n as i32, 1]);
 
         let sin_outer = sin_t_2d.clone().matmul(sin_t_2d.transpose()); // [N, N]
         let cos_outer = cos_t_2d.clone().matmul(cos_t_2d.transpose()); // [N, N]
@@ -327,7 +327,7 @@ impl SphericalCoords {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
     use crate::backend::init_gpu_device;
@@ -340,9 +340,13 @@ mod tests {
         // Create random spherical coords
         let r = Tensor::random([n], Distribution::Uniform(1.0, 10.0), &device);
         let theta = Tensor::random([n], Distribution::Uniform(0.1, 3.0), &device);
-        let phi = Tensor::random([n], Distribution::Uniform(0.0, 6.28), &device);
+        let phi = Tensor::random(
+            [n],
+            Distribution::Uniform(0.0, std::f64::consts::TAU),
+            &device,
+        );
 
-        let coords = SphericalCoords::new(r.clone(), theta.clone(), phi.clone());
+        let coords = SphericalCoords::new(r.clone(), theta, phi);
 
         // Convert to Cartesian and back
         let cart = coords.to_cartesian();

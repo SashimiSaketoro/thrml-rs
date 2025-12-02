@@ -8,9 +8,10 @@ use thrml_core::interaction::InteractionGroup;
 use thrml_core::node::{Node, NodeType, TensorSpec};
 use thrml_core::state_tree::block_state_to_global;
 
-/// A SuperBlock is a collection of blocks that will be sampled at the same "time"
-/// specifically, they will be sampled separately, but without updating the state
-/// in between (so same algorithmic, but not computation time)
+/// A collection of blocks sampled at the same "time".
+///
+/// Blocks in a SuperBlock are sampled separately but without updating state
+/// in between (same algorithmic time, different computation time).
 pub type SuperBlock = Vec<Block>;
 
 /// A BlockGibbsSpec is a type of BlockSpec which contains additional information
@@ -53,7 +54,7 @@ impl BlockGibbsSpec {
 
         let spec = BlockSpec::new(all_blocks, node_shape_dtypes)?;
 
-        Ok(BlockGibbsSpec {
+        Ok(Self {
             spec,
             free_blocks,
             sampling_order,
@@ -305,7 +306,7 @@ impl BlockSamplingProgram {
             per_block_n_spin.push(this_block_n_spin);
         }
 
-        Ok(BlockSamplingProgram {
+        Ok(Self {
             gibbs_spec,
             samplers,
             per_block_interaction_global_inds,

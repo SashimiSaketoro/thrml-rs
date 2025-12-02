@@ -196,16 +196,18 @@ pub fn ndcg_multi(retrieved: &[usize], relevant: &[usize], k: usize) -> f32 {
 
     // Compute IDCG (perfect ranking: all relevant items first)
     let n_relevant_in_k = relevant_set.len().min(k);
+    
+    // Early return if no relevant items - avoids division by zero
+    if n_relevant_in_k == 0 {
+        return 0.0;
+    }
+    
     let mut idcg = 0.0;
     for rank in 1..=n_relevant_in_k {
         idcg += 1.0 / (rank as f32 + 1.0).log2();
     }
 
-    if idcg == 0.0 {
-        0.0
-    } else {
-        dcg / idcg
-    }
+    dcg / idcg
 }
 
 /// Aggregated retrieval metrics over multiple queries.

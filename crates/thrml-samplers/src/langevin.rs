@@ -45,7 +45,7 @@ pub struct LangevinConfig {
 
 impl LangevinConfig {
     /// Create new Langevin configuration.
-    pub fn new(step_size: f32, temperature: f32) -> Self {
+    pub const fn new(step_size: f32, temperature: f32) -> Self {
         Self {
             step_size,
             temperature,
@@ -54,7 +54,7 @@ impl LangevinConfig {
     }
 
     /// Set gradient clipping threshold.
-    pub fn with_gradient_clip(mut self, max_grad: f32) -> Self {
+    pub const fn with_gradient_clip(mut self, max_grad: f32) -> Self {
         self.gradient_clip = Some(max_grad);
         self
     }
@@ -95,11 +95,9 @@ pub fn langevin_step_2d(
     let shape = state.dims();
 
     // Apply gradient clipping if enabled
-    let grad = if let Some(max_grad) = config.gradient_clip {
-        clip_gradient_2d(gradient, max_grad)
-    } else {
-        gradient.clone()
-    };
+    let grad = config
+        .gradient_clip
+        .map_or_else(|| gradient.clone(), |max_grad| clip_gradient_2d(gradient, max_grad));
 
     // Drift: -gradient * step_size
     let drift = grad.mul_scalar(-config.step_size);
@@ -157,15 +155,16 @@ fn langevin_step_2d_cpu_f64(
     let grad_data: Vec<f32> = gradient.clone().into_data().to_vec().unwrap();
 
     // Apply gradient clipping in f64 if enabled
-    let grad_f64: Vec<f64> = if let Some(max_grad) = config.gradient_clip {
-        let max_grad_f64 = max_grad as f64;
-        grad_data
-            .iter()
-            .map(|&g| (g as f64).clamp(-max_grad_f64, max_grad_f64))
-            .collect()
-    } else {
-        grad_data.iter().map(|&g| g as f64).collect()
-    };
+    let grad_f64: Vec<f64> = config.gradient_clip.map_or_else(
+        || grad_data.iter().map(|&g| g as f64).collect(),
+        |max_grad| {
+            let max_grad_f64 = max_grad as f64;
+            grad_data
+                .iter()
+                .map(|&g| (g as f64).clamp(-max_grad_f64, max_grad_f64))
+                .collect()
+        },
+    );
 
     // Compute step in f64
     let step_size_f64 = config.step_size as f64;
@@ -203,11 +202,9 @@ pub fn langevin_step_1d(
     let n = state.dims()[0];
 
     // Apply gradient clipping if enabled
-    let grad = if let Some(max_grad) = config.gradient_clip {
-        clip_gradient_1d(gradient, max_grad)
-    } else {
-        gradient.clone()
-    };
+    let grad = config
+        .gradient_clip
+        .map_or_else(|| gradient.clone(), |max_grad| clip_gradient_1d(gradient, max_grad));
 
     // Drift: -gradient * step_size
     let drift = grad.mul_scalar(-config.step_size);
@@ -255,10 +252,10 @@ impl AnnealingSchedule {
     /// Get temperature at step t (normalized to [0, 1]).
     pub fn temperature(&self, t: f32) -> f32 {
         match self {
-            AnnealingSchedule::Constant(temp) => *temp,
-            AnnealingSchedule::Linear { start, end } => start + (end - start) * t,
-            AnnealingSchedule::Exponential { start, decay } => start * decay.powf(t),
-            AnnealingSchedule::Cosine { start, end } => {
+            Self::Constant(temp) => *temp,
+            Self::Linear { start, end } => start + (end - start) * t,
+            Self::Exponential { start, decay } => start * decay.powf(t),
+            Self::Cosine { start, end } => {
                 let cos_t = (t * std::f32::consts::PI).cos();
                 end + (start - end) * 0.5 * (1.0 + cos_t)
             }

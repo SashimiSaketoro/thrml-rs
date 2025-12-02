@@ -1,6 +1,15 @@
 //! # thrml-core
 //!
 //! Core types and GPU backend for the THRML probabilistic computing library.
+
+// Clippy pedantic allows - verified needed 2024-12-01
+#![allow(clippy::doc_markdown)] // Technical terms (BLT, ROOTS, etc.)
+#![allow(clippy::must_use_candidate)] // Getters don't all need #[must_use]
+// Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
+// and practical GPU memory limits (~2B elements = 8GB minimum)
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)] // usize→f32 precision loss acceptable for counts
+#![allow(clippy::similar_names)] // sin_t_2d vs sin_p_2d intentional
 //!
 //! This crate provides foundational types for building probabilistic graphical models:
 //!

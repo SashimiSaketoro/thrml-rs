@@ -41,7 +41,7 @@ impl LinearFactor {
     /// * `block` - Block of continuous nodes this factor applies to
     pub fn new(weights: Tensor<WgpuBackend, 1>, block: Block) -> Self {
         let node_groups = vec![block.clone()];
-        LinearFactor {
+        Self {
             weights,
             block,
             node_groups,
@@ -122,7 +122,7 @@ impl QuadraticFactor {
     /// * `block` - Block of continuous nodes this factor applies to
     pub fn new(inverse_weights: Tensor<WgpuBackend, 1>, block: Block) -> Self {
         let node_groups = vec![block.clone()];
-        QuadraticFactor {
+        Self {
             inverse_weights,
             block,
             node_groups,
@@ -224,7 +224,7 @@ impl CouplingFactor {
             ));
         }
         let node_groups = vec![block_i.clone(), block_j.clone()];
-        Ok(CouplingFactor {
+        Ok(Self {
             weights,
             block_i,
             block_j,

@@ -18,17 +18,17 @@ impl Block {
                 return Err("All nodes in a block must be of the same type".to_string());
             }
         }
-        Ok(Block {
+        Ok(Self {
             nodes,
             node_type: first_type,
         })
     }
 
-    pub fn node_type(&self) -> &NodeType {
+    pub const fn node_type(&self) -> &NodeType {
         &self.node_type
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.nodes.len()
     }
 
@@ -36,7 +36,7 @@ impl Block {
         &self.nodes
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
@@ -46,14 +46,14 @@ impl Block {
 }
 
 impl Add for Block {
-    type Output = Result<Block, String>;
-    fn add(self, other: Block) -> Result<Block, String> {
+    type Output = Result<Self, String>;
+    fn add(self, other: Self) -> Result<Self, String> {
         if self.node_type != other.node_type {
             return Err("Cannot add blocks of different node types".to_string());
         }
         let mut nodes = self.nodes;
         nodes.extend(other.nodes);
-        Block::new(nodes)
+        Self::new(nodes)
     }
 }
 

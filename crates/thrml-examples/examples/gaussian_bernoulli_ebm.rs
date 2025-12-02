@@ -73,7 +73,7 @@ fn main() {
     // 1. Quadratic factor for continuous nodes (diagonal of precision)
     let precision_diag: Tensor<WgpuBackend, 1> =
         Tensor::random([n_continuous], Distribution::Uniform(2.0, 3.0), &device);
-    let inverse_precision: Tensor<WgpuBackend, 1> = precision_diag.clone().recip();
+    let inverse_precision: Tensor<WgpuBackend, 1> = precision_diag.recip();
 
     // 2. Linear factor for continuous nodes (bias)
     let (_k, k2) = key.split_two();
@@ -131,8 +131,8 @@ fn main() {
     let mut interaction_groups: Vec<InteractionGroup> = Vec::new();
 
     // Continuous node interactions
-    let cont_all_block = Block::new(continuous_nodes.clone()).expect("cont all block");
-    let spin_all_block = Block::new(spin_nodes.clone()).expect("spin all block");
+    let cont_all_block = Block::new(continuous_nodes).expect("cont all block");
+    let spin_all_block = Block::new(spin_nodes).expect("spin all block");
 
     // Quadratic (variance) for continuous
     let inv_prec_2d: Tensor<WgpuBackend, 2> = inverse_precision.reshape([n_continuous as i32, 1]);
@@ -155,7 +155,7 @@ fn main() {
             InteractionData::Linear {
                 weights: cont_bias_2d,
             },
-            cont_all_block.clone(),
+            cont_all_block,
             vec![],
             0,
         )
@@ -180,8 +180,8 @@ fn main() {
             InteractionData::Linear {
                 weights: cc_weights_2d,
             },
-            cc_block_j.clone(),
-            vec![cc_block_i.clone()],
+            cc_block_j,
+            vec![cc_block_i],
             0,
         )
         .expect("cc coupling ig 2"),
@@ -190,7 +190,7 @@ fn main() {
     // Spin biases - as a 3D tensor [n_spin, 1, 1]
     let spin_bias_3d: Tensor<WgpuBackend, 3> = spin_biases.reshape([n_spin as i32, 1, 1]);
     interaction_groups.push(
-        InteractionGroup::new(spin_bias_3d, spin_all_block.clone(), vec![], 0)
+        InteractionGroup::new(spin_bias_3d, spin_all_block, vec![], 0)
             .expect("spin bias ig"),
     );
 
@@ -208,8 +208,8 @@ fn main() {
     interaction_groups.push(
         InteractionGroup::new(
             ss_weights_3d,
-            ss_block_j.clone(),
-            vec![ss_block_i.clone()],
+            ss_block_j,
+            vec![ss_block_i],
             1,
         )
         .expect("ss coupling ig 2"),
@@ -224,7 +224,7 @@ fn main() {
     // Spin <- Continuous coupling (affects spin sampling)
     interaction_groups.push(
         InteractionGroup::new(
-            sc_weights_3d.clone(),
+            sc_weights_3d,
             sc_block_spin.clone(),
             vec![sc_block_cont.clone()],
             0, // continuous tail, not spin
@@ -238,8 +238,8 @@ fn main() {
             InteractionData::Linear {
                 weights: sc_weights_2d,
             },
-            sc_block_cont.clone(),
-            vec![sc_block_spin.clone()],
+            sc_block_cont,
+            vec![sc_block_spin],
             0, // spin tail but for linear interaction it doesn't matter
         )
         .expect("sc coupling ig cont"),
@@ -253,8 +253,8 @@ fn main() {
     // Step 0: continuous block 0 + spin block 0
     // Step 1: continuous block 1 + spin block 1
     let free_super_blocks = vec![
-        vec![cont_block0.clone(), spin_block0.clone()],
-        vec![cont_block1.clone(), spin_block1.clone()],
+        vec![cont_block0, spin_block0],
+        vec![cont_block1, spin_block1],
     ];
 
     let mut node_shape_dtypes = IndexMap::new();
@@ -407,7 +407,7 @@ fn main() {
 
     println!("\nSpin variable means (should be near 0.5 for unbiased):");
     for (i, &m) in spin_means.iter().enumerate() {
-        let spin_val = 2.0 * m - 1.0; // Convert 0/1 to -1/+1
+        let spin_val = 2.0f32.mul_add(m, -1.0); // Convert 0/1 to -1/+1
         println!("  s_{}: {:.4} (as ±1: {:.4})", i, m, spin_val);
     }
 
@@ -420,7 +420,7 @@ fn main() {
     println!(
         "Average spin probability (0->1): {:.4} (±1 magnetization: {:.4})",
         spin_mean,
-        2.0 * spin_mean - 1.0
+        2.0f32.mul_add(spin_mean, -1.0)
     );
     println!("\n✓ Mixed Gaussian-Bernoulli sampling completed successfully!");
 }

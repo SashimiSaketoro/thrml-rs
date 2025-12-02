@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-12-02
+
+Code quality improvements and kernel restoration.
+
+### Added
+
+#### Fused Kernels (`thrml-kernels`)
+- `cosine_similarity_fused` - Single-kernel cosine similarity (restored)
+- `cosine_similarity_fused_batched` - Batched query-to-vectors similarity
+- `cosine_similarity_prenormalized` - Optimized for pre-normalized vectors
+- `l2_normalize_fused` - Single-kernel L2 row normalization (restored)
+- `launch_l2_normalize_with_norms` - Returns norms alongside normalized output
+- CubeCL kernels with `#[comptime]` parameters for compile-time optimization
+
+#### API Improvements
+- `FromStr` trait implementation for `ScaleProfile`
+- `EdgeBatch` type alias for cleaner graph training APIs
+
+### Changed
+
+#### Code Quality
+- Enabled `clippy::pedantic` with documented allows
+- Applied `clippy::nursery` fixes (~370 warnings resolved):
+  - `missing_const_for_fn` - functions marked `const` where applicable
+  - `use_self` - replaced type names with `Self`
+  - `option_if_let_else` - converted simple cases to `map_or`/`map_or_else`
+  - `or_fun_call` - lazy evaluation with `or_else`/`unwrap_or_else`
+  - `significant_drop_tightening` - earlier MutexGuard drops
+- Replaced manual `as` casts with `mul_add()` for numeric accuracy
+- Iterator-based loops replace index loops where appropriate
+- `copy_from_slice()` replaces manual memcpy loops
+- Fixed all rustdoc `invalid_html_tags` warnings (bracket escaping in doc comments)
+
+---
+
 ## [0.1.0] - 2025-11-25
 
 ### Initial Release
@@ -72,64 +107,35 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - Native Apple Silicon (M1/M2/M3/M4) support via Metal
 - Comprehensive test suite with GPU smoke tests
 
-## [Unreleased]
+## [0.2.0] - 2025-12-01
+
+Major feature additions including hardware-aware routing and precision control.
 
 ### Added
 
-#### Hyperspherical Navigation (`thrml-sphere`) - NEW CRATE
-- `SphereEBM`: Langevin dynamics-based sphere optimization ("water-filling")
-- `NavigatorEBM`: Multi-cone EBM navigation through hyperspherical embeddings
-- `MultiConeNavigator`: ROOTS-guided navigation with dynamic budget allocation
-- `RootsIndex`: Compressed inner-shell index layer (3000:1 compression)
-- Ising max-cut partitioning with substring coupling for byte-level structure
-- `SubstringConfig`: Byte-level substring similarity for code/text clustering
-- `BudgetConfig`: Memory budget allocation across navigation cones
-- Scale profiles: `Dev`, `Small`, `Large` for different use cases
+#### `thrml-core::metrics` (new module)
 
-#### Training Infrastructure (`thrml-sphere`)
-- `TrainableNavigatorEBM`: End-to-end trainable navigator
-- `TrainingDataset`: Train/validation split with similarity-based pair generation
-- `ExtendedTrainingConfig`: Validation, early stopping, checkpointing
-- `TuningGrid` and `TuningSession`: Hyperparameter search (grid/random)
-- `NavigationMetrics`: Recall@k, MRR, nDCG evaluation
+- `recall_at_k()`, `mrr()`, `ndcg()`, `ndcg_multi()`
+- `find_rank()`: 1-indexed rank lookup
+- `evaluate_retrieval()`: Batch evaluation
+- `RetrievalMetrics`: Aggregated struct
 
-#### Advanced Contrastive Divergence (`thrml-sphere`)
-- `HardNegativeMiner`: Similarity-based hard negative mining with false-negative filtering
-- `PersistentParticleBuffer`: Persistent Contrastive Divergence (PCD) with fantasy particles
-- `NegativeCurriculumSchedule`: Progressive difficulty scheduling (Easy→Medium→Hard)
-- `SGLDNegativeSampler`: SGLD-based negative phase sampling
-- `AdvancedTrainingConfig`: Unified config for all CD techniques
-- Learning rate warmup and cosine annealing schedules
+#### `thrml-core::text` (new module)
 
-#### Retrieval Metrics (`thrml-core::metrics`) - NEW MODULE
-- `recall_at_k()`: Recall@k for single query evaluation
-- `mrr()`: Mean Reciprocal Rank for single query
-- `ndcg()`: Normalized Discounted Cumulative Gain (binary relevance)
-- `ndcg_multi()`: nDCG with multiple relevant items (graded relevance)
-- `find_rank()`: Find 1-indexed rank of target in results
-- `evaluate_retrieval()`: Batch evaluation over multiple queries
-- `RetrievalMetrics`: Aggregated metrics struct with `Display` impl
+- `RollingHash`: O(1) sliding window hash
+- `ngram_hashes()`, `ngram_hashes_with_length()`
+- `jaccard_similarity()`, `contains_subsequence()`
+- `TextSimilarityConfig`, `text_similarity()`
 
-#### Text Similarity (`thrml-core::text`) - NEW MODULE
-- `RollingHash`: Efficient O(1) sliding window polynomial hash
-- `ngram_hashes()`: Compute all n-gram hashes for a byte sequence
-- `ngram_hashes_with_length()`: Include n-gram length for multi-scale comparison
-- `jaccard_similarity()`: Set-based Jaccard coefficient
-- `contains_subsequence()`: Check contiguous substring containment
-- `check_containment()`: Mutual containment check with size info
-- `hybrid_similarity()`: Weighted combination of two similarity scores
-- `TextSimilarityConfig`: Configuration struct with builder pattern
-- `text_similarity()`: High-level text similarity function
+#### `thrml-samplers::maxcut` (new module)
 
-#### Max-Cut Graph Partitioning (`thrml-samplers::maxcut`) - NEW MODULE
-- `maxcut_gibbs()`: Gibbs/Metropolis-Hastings sampling for max-cut
-- `maxcut_multistart()`: Multiple random restarts, returns best partition
-- `maxcut_greedy()`: Fast greedy local search
-- `cut_value()`: Compute total weight of edges crossing partition
-- `ising_energy()`: Compute Ising energy for spin configuration
-- `partition_to_binary()` / `binary_to_partition()`: Convert representations
+- `maxcut_gibbs()`: Gibbs sampling for max-cut
+- `maxcut_multistart()`: Multi-restart best partition
+- `maxcut_greedy()`: Greedy local search
+- `cut_value()`, `ising_energy()`
+- `partition_to_binary()`, `binary_to_partition()`
 
-#### Hardware-Aware Precision Routing (`thrml-core`)
+#### Hardware-Aware Routing (`thrml-core`)
 - `RuntimePolicy`: Auto-detect hardware and configure precision routing
   - `RuntimePolicy::detect()`: Automatic GPU detection via WGPU adapter info
   - `RuntimePolicy::apple_silicon()`, `nvidia_consumer()`, `nvidia_hopper()`, `nvidia_blackwell()`: Tier-specific constructors
@@ -180,13 +186,6 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - Torus (periodic) boundary support
 - Two-color blocking for efficient block Gibbs sampling
 
-#### Examples (`thrml-examples`)
-- `navigator_demo`: Multi-cone navigation demonstration
-- `train_navigator`: Train navigator with contrastive divergence
-- `tune_navigator`: Hyperparameter tuning session
-- `blt_sphere`: Sphere optimization from BLT embeddings
-- `build_roots`: ROOTS index construction
-
 #### CLI & Configuration
 - Full CLI configuration for `train_mnist` example with all 14+ hyperparameters
 - `--epochs`, `--learning-rate`, `--batch-size`, `--warmup-neg/pos`, `--samples-neg/pos`, etc.
@@ -213,9 +212,3 @@ Complete Rust implementation of GPU-accelerated probabilistic graphical models.
 - Clippy lint for `is_multiple_of()` usage
 - Unused `mut` warning in `available_backends()` when no features enabled
 - Feature flag configuration allowing true CPU-only builds
-
-### Planned
-
-- Performance benchmarks
-- Python bindings via PyO3
-- Additional optimization passes

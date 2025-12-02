@@ -1,6 +1,15 @@
 //! # thrml-models
 //!
 //! Model implementations for the THRML probabilistic computing library.
+
+// Clippy pedantic allows - verified needed 2024-12-01
+#![allow(clippy::doc_markdown)] // Technical terms (EBM, RBM, etc.)
+#![allow(clippy::must_use_candidate)] // Getters don't all need #[must_use]
+// Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)] // Acceptable in ML contexts
+#![allow(clippy::cast_possible_wrap)] // Handled carefully
+#![allow(clippy::similar_names)] // Intentional variable naming
 //!
 //! This crate provides implementations of various probabilistic graphical models:
 //!
@@ -39,6 +48,8 @@
 //! - [`GraphSidecar`]: Graph structure with edges and node attributes
 //! - [`SpringEBM`]: Spring-like forces between connected nodes
 //! - [`NodeBiasEBM`]: Weighted node bias energy
+//! - [`ProbabilisticGraphEBM`]: Learnable edge energies with Gibbs sampling
+//! - [`GraphEBMTrainer`]: Contrastive divergence training for edge weights
 //!
 //! ## Graph Construction Utilities
 //!

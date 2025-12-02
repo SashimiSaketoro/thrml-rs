@@ -20,13 +20,13 @@ pub use forward::sigmoid_bernoulli_fused;
 mod tests {
     use super::*;
     use burn::tensor::{Distribution, Tensor};
-    use thrml_core::backend::{init_gpu_device, WgpuBackend};
+    use thrml_core::backend::{init_gpu_device, CubeWgpuBackend};
 
     /// Reference implementation for comparison
     fn sigmoid_bernoulli_reference(
-        gamma: Tensor<WgpuBackend, 1>,
-        uniform: Tensor<WgpuBackend, 1>,
-    ) -> Tensor<WgpuBackend, 1> {
+        gamma: Tensor<CubeWgpuBackend, 1>,
+        uniform: Tensor<CubeWgpuBackend, 1>,
+    ) -> Tensor<CubeWgpuBackend, 1> {
         use burn::tensor::activation::sigmoid;
         let probs = sigmoid(gamma * 2.0);
         uniform.lower_equal(probs).float()
@@ -37,9 +37,9 @@ mod tests {
         let device = init_gpu_device();
 
         // Create test inputs
-        let gamma: Tensor<WgpuBackend, 1> =
+        let gamma: Tensor<CubeWgpuBackend, 1> =
             Tensor::random([1000], Distribution::Normal(0.0, 1.0), &device);
-        let uniform: Tensor<WgpuBackend, 1> =
+        let uniform: Tensor<CubeWgpuBackend, 1> =
             Tensor::random([1000], Distribution::Uniform(0.0, 1.0), &device);
 
         let reference = sigmoid_bernoulli_reference(gamma.clone(), uniform.clone());

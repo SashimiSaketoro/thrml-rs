@@ -21,7 +21,6 @@ ported from [Extropic's THRML](https://github.com/extropic-ai/thrml) library, wi
 - **Deterministic RNG**: Reproducible sampling with ChaCha8-based key splitting
 - **Moment Estimation**: Built-in observers for computing statistics
 - **Training Support**: Contrastive divergence, KL gradient estimation
-- **Runtime Abstraction**: Hardware-aware CPU/GPU routing (see [Architecture Guide](docs/architecture.md))
 
 ## Quick Start
 
@@ -70,7 +69,7 @@ fn main() {
 
 ## Installation
 
-Add to your `Cargo.toml`:
+### From crates.io (stable, main branch)
 
 ```toml
 [dependencies]
@@ -78,6 +77,21 @@ thrml-core = "0.1"
 thrml-samplers = "0.1"
 thrml-models = "0.1"
 thrml-observers = "0.1"
+```
+
+### From Git (sphere branch, experimental)
+
+The `sphere` branch includes additional crates and features not yet published to crates.io:
+
+```toml
+[dependencies]
+thrml-core = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-samplers = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-models = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+thrml-observers = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
+
+# Experimental: hyperspherical navigation (sphere branch only)
+thrml-sphere = { git = "https://github.com/SashimiSaketoro/thrml-rs", branch = "sphere" }
 ```
 
 ### Feature Flags
@@ -104,6 +118,81 @@ cargo build --release --features cpu
 - Rust 1.89+ (stable) - required by Burn 0.19
 - **WGPU backend**: GPU with Metal (macOS) or Vulkan (Linux/Windows) support
 - **CUDA backend**: NVIDIA GPU with CUDA toolkit installed
+
+## Runtime & Hardware Profiles
+
+`thrml-rs` is designed to run from laptops to DGX-class servers. The core crates share a
+common runtime abstraction:
+
+- **`ComputeBackend`**: Selects CPU / GPU / hybrid execution
+- **`PrecisionMode`**: Chooses between `GpuFast`, `CpuPrecise`, or `Adaptive` routing
+- **`OpType`**: Tags operations (Ising sampling, distance, navigator steps) for precision-aware routing
+
+### Hardware Tiers
+
+| Tier | Examples | FP64 | Default Profile |
+|------|----------|------|-----------------|
+| **Apple Silicon** | M1–M4 Pro/Max/Ultra | CPU only | `CpuFp64Strict` - GPU for throughput, CPU for precision |
+| **Consumer GPU** | RTX 3080–5090, RDNA3/4 | Weak | `GpuMixed` - GPU FP32, CPU f64 for corrections |
+| **HPC GPU** | H100, H200, B200, DGX Spark | Native | `GpuHpcFp64` - Full f64 on GPU |
+| **CPU Only** | Servers without GPU | Native | `CpuFp64Strict` - All operations on CPU |
+
+### Usage
+
+```rust
+use thrml_core::compute::{ComputeBackend, RuntimePolicy, OpType};
+
+// Auto-detect hardware and create appropriate backend
+let policy = RuntimePolicy::detect();
+let backend = ComputeBackend::from_policy(&policy);
+
+println!("Detected: {:?}", policy.tier);  // e.g., AppleSilicon
+println!("Profile: {:?}", policy.profile); // e.g., CpuFp64Strict
+
+// Precision-aware routing
+if backend.use_cpu(OpType::IsingSampling, None) {
+    // High-precision CPU f64 path (Apple Silicon, consumer GPU)
+} else {
+    // Fast GPU path (HPC GPUs with native f64)
+}
+```
+
+The default `ComputeBackend::default()` auto-detects your hardware. For explicit control:
+
+```rust
+// Force specific profiles
+let apple = RuntimePolicy::apple_silicon();
+let hpc = RuntimePolicy::nvidia_hopper();  // H100/H200
+let spark = RuntimePolicy::nvidia_spark(); // DGX Spark / GB10
+```
+
+## `thrml-sphere` (this branch)
+
+| Crate | Description |
+|-------|-------------|
+| [`thrml-sphere`](crates/thrml-sphere/) | Hyperspherical navigation, ROOTS indexing, multi-cone EBM |
+
+**What it does:**
+- **SphereEBM**: Langevin dynamics to place embeddings on a hypersphere
+- **NavigatorEBM**: EBM with learnable weights for similarity, radial alignment, path length
+- **MultiConeNavigator**: Spawns cones from ROOTS peaks, allocates budget per cone
+- **RootsIndex**: Compresses inner shells ~3000:1 for coarse routing
+
+Training: contrastive divergence with hard negatives, PCD, curriculum scheduling.
+
+**BLT Integration:** Works with [`blt-burn`](https://github.com/SashimiSaketoro/blt-burn) — BLT provides embeddings, `thrml-sphere` provides the navigator.
+
+```rust
+use thrml_sphere::{RuntimeConfig, BudgetConfig, SphereConfig, RootsConfig};
+
+let runtime = RuntimeConfig::auto();
+println!("Hardware: {:?}, Budget: {:.1} GB", runtime.policy.tier, runtime.budget_gb());
+
+let roots_cfg = RootsConfig::default().with_partitions(64);
+let budget = runtime.budget.with_max_cones(8);
+```
+
+For full API, see [docs/api/sphere.md](docs/api/sphere.md).
 
 ## Examples
 
@@ -134,7 +223,12 @@ cargo run --release --example train_mnist
 
 ## Documentation
 
-- [API Documentation](https://docs.rs/thrml)
+- [API Documentation](https://docs.rs/thrml) - Published crates (main branch)
+- [Core API](docs/api/core.md) - Nodes, blocks, compute backends, metrics, text utilities
+- [Samplers API](docs/api/samplers.md) - Gibbs, Bernoulli, Gaussian, max-cut algorithms
+- [Models API](docs/api/models.md) - Ising, discrete EBMs, continuous factors
+- [Sphere API](docs/api/sphere.md) - Hyperspherical navigation (sphere branch)
+- [BLT Pipeline](docs/blt_sphere_pipeline.md) - BLT → thrml-sphere integration
 - [Architecture Guide](docs/architecture.md)
 - [Examples README](crates/thrml-examples/README.md)
 
@@ -172,13 +266,3 @@ at your option.
 This project is inspired by [Extropic's THRML](https://github.com/extropic-ai/thrml) library. 
 THRML-RS is an independent Rust implementation providing the same functionality with native 
 GPU acceleration.
-
-## Experimental
-
-The [`sphere` branch](https://github.com/SashimiSaketoro/thrml-rs/tree/sphere) contains:
-
-- **`thrml-sphere`** (v0.0.x): Hyperspherical navigation with ROOTS indexing and multi-cone EBM
-- Expanded hardware-aware runtime profiles (DGX Spark, Blackwell, etc.)
-- BLT integration for byte-latent embeddings
-
-This is not published to crates.io and the API may change without notice; it's intended for experiments with BLT/ROOTS-style embedding navigation.

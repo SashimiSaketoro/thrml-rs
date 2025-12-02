@@ -182,7 +182,7 @@ fn test_mnist_model_creation() {
     let device = init_gpu_device();
 
     // Configuration matching Python test
-    let target_classes = vec![0, 3, 4];
+    let target_classes = [0, 3, 4];
     let num_label_spots = 10;
     let label_size = target_classes.len() * num_label_spots;
     let data_dim = 28 * 28 + label_size; // 814
@@ -277,7 +277,7 @@ fn test_mnist_training_setup() {
     let device = init_gpu_device();
 
     // Configuration
-    let target_classes = vec![0, 3, 4];
+    let target_classes = [0, 3, 4];
     let num_label_spots = 10;
     let label_size = target_classes.len() * num_label_spots;
     let data_dim = 28 * 28 + label_size;
@@ -297,9 +297,9 @@ fn test_mnist_training_setup() {
     let model = IsingEBM::new(all_nodes.clone(), all_edges.clone(), biases, weights, beta);
 
     // Define sampling blocks
-    let positive_sampling_blocks = vec![upper_without_visible.clone(), lower_grid.clone()];
-    let negative_sampling_blocks = vec![upper_grid.clone(), lower_grid.clone()];
-    let training_data_blocks = vec![visible_nodes.clone()];
+    let positive_sampling_blocks = vec![upper_without_visible, lower_grid.clone()];
+    let negative_sampling_blocks = vec![upper_grid, lower_grid];
+    let training_data_blocks = vec![visible_nodes];
 
     // Create schedules
     let schedule_negative = SamplingSchedule::new(10, 5, 2); // Small for testing
@@ -307,8 +307,8 @@ fn test_mnist_training_setup() {
 
     // Create training spec (needs to clone model since it takes ownership)
     let model_for_spec = IsingEBM::new(
-        all_nodes.clone(),
-        all_edges.clone(),
+        all_nodes,
+        all_edges,
         model.biases.clone(),
         model.weights.clone(),
         model.beta.clone(),
@@ -319,9 +319,9 @@ fn test_mnist_training_setup() {
         training_data_blocks.clone(),
         vec![],
         positive_sampling_blocks.clone(),
-        negative_sampling_blocks.clone(),
-        schedule_positive.clone(),
-        schedule_negative.clone(),
+        negative_sampling_blocks,
+        schedule_positive,
+        schedule_negative,
         &device,
     );
 
@@ -335,7 +335,7 @@ fn test_mnist_training_setup() {
 
     // Create sampling program
     let free_blocks = positive_sampling_blocks.clone();
-    let clamped_blocks = training_data_blocks.clone();
+    let clamped_blocks = training_data_blocks;
 
     let program = IsingSamplingProgram::new(&model, free_blocks, clamped_blocks, &device);
 
@@ -403,7 +403,7 @@ fn test_mnist_training_full() {
     println!("Train data shape: {:?}", train_dims);
 
     // Configuration
-    let target_classes = vec![0, 3, 4];
+    let target_classes = [0, 3, 4];
     let num_label_spots = 10;
     let label_size = target_classes.len() * num_label_spots;
     let data_dim = 28 * 28 + label_size;
@@ -420,9 +420,9 @@ fn test_mnist_training_full() {
     let mut model = IsingEBM::new(all_nodes.clone(), all_edges.clone(), biases, weights, beta);
 
     // Sampling blocks
-    let positive_sampling_blocks = vec![upper_without_visible.clone(), lower_grid.clone()];
-    let negative_sampling_blocks = vec![upper_grid.clone(), lower_grid.clone()];
-    let training_data_blocks = vec![visible_nodes.clone()];
+    let positive_sampling_blocks = vec![upper_without_visible, lower_grid.clone()];
+    let negative_sampling_blocks = vec![upper_grid, lower_grid];
+    let training_data_blocks = vec![visible_nodes];
 
     // Schedules - smaller for testing
     let schedule_negative = SamplingSchedule::new(50, 10, 3);
@@ -452,17 +452,17 @@ fn test_mnist_training_full() {
 
         // Initialize states
         let keys = key.split(3);
-        key = keys[2].clone();
+        key = keys[2];
 
         let init_free_pos = hinton_init(
-            keys[0].clone(),
+            keys[0],
             &model,
             &positive_sampling_blocks,
             &[],
             &device,
         );
         let init_free_neg = hinton_init(
-            keys[1].clone(),
+            keys[1],
             &model,
             &negative_sampling_blocks,
             &[],
@@ -507,7 +507,7 @@ fn test_mnist_training_full() {
 
         // Compute gradients
         let result = estimate_kl_grad(
-            keys[0].clone(),
+            keys[0],
             &training_spec,
             &all_nodes,
             &all_edges,

@@ -12,7 +12,7 @@ use burn_cubecl::{
     FloatElement, IntElement,
 };
 use cubecl::{CubeCount, CubeDim};
-use thrml_core::backend::WgpuBackend;
+use thrml_core::backend::CubeWgpuBackend;
 
 /// Launch the Gumbel-max argmax kernel on any CubeBackend.
 ///
@@ -90,7 +90,7 @@ where
 /// Executes the fused Gumbel-max argmax kernel.
 ///
 /// This is a convenience function that works with high-level Tensor types
-/// on the default WgpuBackend.
+/// on the raw CubeWgpuBackend (not Fusion).
 ///
 /// # Arguments
 ///
@@ -101,9 +101,9 @@ where
 ///
 /// Category indices \[n_samples\] as integers.
 pub fn gumbel_argmax_fused(
-    logits: Tensor<WgpuBackend, 2>,
-    uniform: Tensor<WgpuBackend, 2>,
-) -> Tensor<WgpuBackend, 1, Int> {
+    logits: Tensor<CubeWgpuBackend, 2>,
+    uniform: Tensor<CubeWgpuBackend, 2>,
+) -> Tensor<CubeWgpuBackend, 1, Int> {
     use cubecl::wgpu::WgpuRuntime;
 
     let logits_prim = logits.into_primitive().tensor();

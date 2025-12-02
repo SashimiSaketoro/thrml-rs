@@ -101,7 +101,7 @@ pub fn laplacian_kernel(dist: &Tensor<WgpuBackend, 2>, sigma: f32) -> Tensor<Wgp
     (-dist.clone() / sigma).exp()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
     use crate::backend::init_gpu_device;

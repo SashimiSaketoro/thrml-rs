@@ -130,6 +130,12 @@ pub mod sigmoid_bernoulli;
 #[cfg(feature = "gpu")]
 pub mod batch_gather;
 
+#[cfg(feature = "gpu")]
+pub mod cosine_similarity;
+
+#[cfg(feature = "gpu")]
+pub mod l2_normalize;
+
 // ============================================================================
 // Reference Implementations (for non-GPU backends or fallback)
 // ============================================================================
@@ -257,3 +263,9 @@ pub use sigmoid_bernoulli::sigmoid_bernoulli_fused;
 
 #[cfg(feature = "gpu")]
 pub use batch_gather::batch_gather_fused;
+
+#[cfg(feature = "gpu")]
+pub use cosine_similarity::cosine_similarity_fused;
+
+#[cfg(feature = "gpu")]
+pub use l2_normalize::l2_normalize_fused;

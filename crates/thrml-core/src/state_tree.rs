@@ -18,7 +18,7 @@ impl<const D: usize> StateLeaf for Tensor<WgpuBackend, D> {
             return leaves[0].clone();
         }
         // Use Burn's concat operation
-        Tensor::cat(leaves.to_vec(), 0)
+        Self::cat(leaves.to_vec(), 0)
     }
 
     fn take_indices(&self, indices: Tensor<WgpuBackend, 1, burn::tensor::Int>) -> Self {
@@ -84,12 +84,9 @@ pub fn make_empty_block_state(
             .get(block.node_type())
             .expect("Node type not found in node_shape_dtypes");
         let block_len = block.len();
-        let shape: [usize; 1] = if let Some(batch) = batch_shape {
-            let total = batch.iter().product::<usize>() * block_len;
-            [total]
-        } else {
-            [block_len]
-        };
+        let shape: [usize; 1] = batch_shape.map_or([block_len], |batch| {
+            [batch.iter().product::<usize>() * block_len]
+        });
         // Create zero tensor - dtype will be determined by usage context
         // For now, use f32 as default (will be cast as needed)
         let tensor = Tensor::zeros(shape, device);

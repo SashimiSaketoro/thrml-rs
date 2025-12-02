@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cubecl",
@@ -4004,6 +4004,7 @@ dependencies = [
  "burn-tensor",
  "burn-wgpu",
  "clap",
+ "cubecl",
  "directories",
  "indexmap",
  "num_cpus",
@@ -4017,8 +4018,9 @@ dependencies = [
 
 [[package]]
 name = "thrml-examples"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
+ "anyhow",
  "burn",
  "clap",
  "indexmap",
@@ -4034,7 +4036,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-kernels"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cubecl",
@@ -4045,7 +4047,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-models"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cuda",
@@ -4063,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-observers"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-tensor",
@@ -4073,7 +4075,7 @@ dependencies = [
 
 [[package]]
 name = "thrml-samplers"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-cuda",

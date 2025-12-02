@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let block0 = Block::new(color0_nodes.clone()).expect("Failed to create block 0");
     let block1 = Block::new(color1_nodes.clone()).expect("Failed to create block 1");
-    let blocks = vec![block0.clone(), block1.clone()];
+    let blocks = [block0.clone(), block1.clone()];
 
     println!("Created 2 sampling blocks:");
     println!("  Block 0: {} nodes", blocks[0].len());
@@ -139,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node shape/dtype spec
     let mut node_shape_dtypes = IndexMap::new();
     node_shape_dtypes.insert(
-        node_type.clone(),
+        node_type,
         thrml_core::node::TensorSpec {
             shape: vec![1],
             dtype: burn::tensor::DType::U8,

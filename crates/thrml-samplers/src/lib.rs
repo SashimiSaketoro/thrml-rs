@@ -1,6 +1,13 @@
 //! # thrml-samplers
 //!
 //! Sampling algorithms for the THRML probabilistic computing library.
+
+// Clippy pedantic allows - verified needed 2024-12-01
+#![allow(clippy::doc_markdown)] // Technical terms
+#![allow(clippy::must_use_candidate)] // Getters
+// Tensor dimensions guaranteed < i32::MAX by Burn's internal representation
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::too_many_arguments)] // Sampling functions have many params
 //!
 //! This crate provides GPU-accelerated sampling algorithms for probabilistic graphical models:
 //!
